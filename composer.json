@@ -21,6 +21,7 @@
     "require": {
         "php": ">=7.2",
         "ext-json": "*",
+        "ext-mbstring": "*",
         "ramsey/uuid": "^4.2"
     }
 }
