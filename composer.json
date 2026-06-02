@@ -1,0 +1,27 @@
+{
+    "name": "nermif/logs",
+    "description": "A coroutine-safe JSON line logger with request tracing and a built-in HTML timeline viewer.",
+    "keywords": [
+        "php",
+        "redis",
+        "stock"
+    ],
+    "license": "MIT",
+    "autoload": {
+        "psr-4": {
+            "Nermif\\Logs\\": "src/"
+        }
+    },
+    "authors": [
+        {
+            "name": "Nermif",
+            "email": "cxal@outlook.com"
+        }
+    ],
+    "require": {
+        "php": ">=7.2",
+        "ext-json": "*",
+        "ext-mbstring": "*",
+        "ramsey/uuid": "^4.2"
+    }
+}
