@@ -438,12 +438,12 @@ class Logs
         }
 
         // thinkphp 5.0
-        if (define('RUNTIME_PATH')) {
-            return rtrim(RUNTIME_PATH, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR . $logDir;
+        if (defined('\RUNTIME_PATH')) {
+            return rtrim(\RUNTIME_PATH, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR . $logDir;
         }
 
-        if (defined('ROOT_PATH')) {
-            return rtrim(ROOT_PATH, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR . 'runtime' . DIRECTORY_SEPARATOR . $logDir;
+        if (defined('\ROOT_PATH')) {
+            return rtrim(\ROOT_PATH, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR . 'runtime' . DIRECTORY_SEPARATOR . $logDir;
         }
 
         return dirname(__DIR__, 3) . DIRECTORY_SEPARATOR . 'runtime' . DIRECTORY_SEPARATOR . $logDir;
