@@ -100,6 +100,12 @@ class Logs
     /** @var bool 是否展开异常堆栈参数的值（默认关闭以避免泄漏敏感信息） */
     private static $expandTraceArgs = false;
 
+    /** @var bool 是否对高熵字符串（如长随机 token）自动脱敏，默认关闭以保证可读性 */
+    private static $autoMaskHighEntropyStrings = false;
+
+    /** @var string 敏感键名匹配模式：'contains' 子串匹配（默认，兼容），'exact' 精确匹配 */
+    private static $sensitiveKeyMatchMode = 'contains';
+
     private const DEFAULT_LOG_DIR = 'logs';
 
     /**
@@ -180,6 +186,28 @@ class Logs
     public static function setExpandTraceArgs(bool $expand): void
     {
         self::$expandTraceArgs = $expand;
+    }
+
+    /**
+     * 设置是否对高熵字符串（如长随机 token/JWT/Bearer）自动脱敏，默认关闭。
+     * 关闭时仅对明确命中的 Bearer/JWT 格式脱敏，UUID/订单号等正常记录。
+     */
+    public static function setAutoMaskHighEntropyStrings(bool $auto): void
+    {
+        self::$autoMaskHighEntropyStrings = $auto;
+    }
+
+    /**
+     * 设置敏感键名的匹配策略。
+     * - 'contains'：子串包含匹配（默认，兼容旧行为），如 'secret' 匹配 'my_secret_key'
+     * - 'exact'：精确匹配，如 'secret' 只匹配键名恰好为 'secret' 的字段
+     */
+    public static function setSensitiveKeyMatchMode(string $mode): void
+    {
+        if (!in_array($mode, ['contains', 'exact'], true)) {
+            throw new \InvalidArgumentException('Sensitive key match mode must be "contains" or "exact"');
+        }
+        self::$sensitiveKeyMatchMode = $mode;
     }
 
     /**
@@ -322,7 +350,7 @@ class Logs
         $ctx = self::context();
 
         $data = [
-            'datetime' => (new \DateTime())->format('Y-m-d H:i:s.u'),
+            'datetime' => self::getMicrotimeDatetime(),
             'trace_id' => $ctx['trace_id'] ?? null,
             'feat' => $ctx['feat'] ?? null,          // 新增 feat 字段
             'level' => $levelName,
@@ -453,6 +481,14 @@ class Logs
     private static function buildLogFilePath(?string $feat): string
     {
         $base = self::$basePath ?: self::getDefaultBasePath();
+
+        // 未显式调用 setBasePath 时在开发环境告警，帮助快速发现配置遗漏
+        if (self::$basePath === '' && php_sapi_name() !== 'cli' && !self::isProductionEnv()) {
+            trigger_error(
+                'Logs::setBasePath() has not been called; log path fell back to: ' . $base,
+                E_USER_WARNING
+            );
+        }
         $ym = date('Ym');
         $day = date('Ymd');
         // feat 不再影响文件名，统一使用主日志名
@@ -472,32 +508,51 @@ class Logs
                 return $file;
             }
 
-            $lockHandle = fopen($file . '.rotatelock', 'c');
-            $locked = $lockHandle !== false && flock($lockHandle, LOCK_EX);
+            $lockFile = $file . '.rotatelock';
+            $lockHandle = @fopen($lockFile, 'c+');
+            $locked = $lockHandle !== false && flock($lockHandle, LOCK_EX | LOCK_NB);
 
             if ($locked) {
                 try {
+                    // 锁过期清理：读取锁文件中的时间戳，超过 LOCK_TTL 秒视为过期锁
+                    $lockTtl = 300;
+                    $stat = fstat($lockHandle);
+                    if ($stat['size'] > 0) {
+                        rewind($lockHandle);
+                        $lockTs = (int) fread($lockHandle, $stat['size']);
+                        if ($lockTs > 0 && time() - $lockTs > $lockTtl) {
+                            ftruncate($lockHandle, 0);
+                            rewind($lockHandle);
+                        }
+                    }
+
+                    // 双重检查：持锁后再次确认文件大小
                     if (!is_file($file) || filesize($file) <= self::MAX_FILE_SIZE) {
                         return $file;
                     }
 
-                    $seq = 1;
-                    do {
-                        $rollFile = $file . '.' . $seq;
-                        $seq++;
-                    } while (is_file($rollFile));
+                    // 时间戳后缀命名，一次生成唯一文件，无 O(n) 扫描
+                    $rollFile = $file . '.' . date('YmdHis');
+                    if (is_file($rollFile)) {
+                        $rollFile .= '.' . bin2hex(random_bytes(3));
+                    }
 
                     if (!@rename($file, $rollFile)) {
                         error_log("Log rotation failed: {$file}");
                         self::$lastRotationFailTime = time();
                     } else {
                         self::$lastRotationFailTime = 0;
+                        // 轮转成功后 touch 新主文件，保证日志文件始终存在
+                        @touch($file);
                     }
+
+                    // 写入心跳时间戳
+                    rewind($lockHandle);
+                    fwrite($lockHandle, (string) time());
+                    fflush($lockHandle);
                 } finally {
                     flock($lockHandle, LOCK_UN);
-                    if ($lockHandle !== false) {
-                        fclose($lockHandle);
-                    }
+                    fclose($lockHandle);
                 }
             } else {
                 error_log("Log rotation lock failed: {$file}");
@@ -571,7 +626,11 @@ class Logs
                     if (is_array($serialized)) {
                         $result[$key] = self::normalizeContext($serialized, $depth + 1);
                     } else {
-                        $result[$key] = self::truncateBytes((string)$serialized, self::MAX_FIELD_LEN);
+                        // 非数组返回值包装为结构化形式，保留可读性
+                        $result[$key] = [
+                            'type' => gettype($serialized),
+                            'value' => self::truncateBytes((string) $serialized, self::MAX_FIELD_LEN),
+                        ];
                     }
                 } elseif (method_exists($value, '__toString')) {
                     $result[$key] = self::truncateBytes((string)$value, self::MAX_FIELD_LEN);
@@ -602,21 +661,28 @@ class Logs
     }
 
     /**
-     * 判断字符串 key 是否命中敏感字段列表
+     * 判断字符串 key 是否命中敏感字段列表（支持 contains/exact 两种匹配策略）
      */
     private static function isSensitiveKey(string $key): bool
     {
         $lower = strtolower($key);
         foreach (self::$sensitiveKeys as $sensitive) {
-            if (strpos($lower, $sensitive) !== false) {
-                return true;
+            if (self::$sensitiveKeyMatchMode === 'exact') {
+                if ($lower === $sensitive) {
+                    return true;
+                }
+            } else {
+                if (strpos($lower, $sensitive) !== false) {
+                    return true;
+                }
             }
         }
         return false;
     }
 
     /**
-     * 启发式判断字符串值是否像敏感信息（长随机串 / Bearer token / JWT / 明显 key=value 形式）
+     * 启发式判断字符串值是否像敏感信息。
+     * Bearer/JWT 格式始终脱敏；高熵字符串（长随机串）由 $autoMaskHighEntropyStrings 开关控制。
      */
     private static function looksLikeSensitiveString(string $value): bool
     {
@@ -625,16 +691,16 @@ class Logs
             return false;
         }
 
-        // Bearer / Basic 等 Authorization 头
+        // Bearer / Basic 等 Authorization 头始终脱敏
         if (preg_match('/^(Bearer|Basic|Token|OAuth)\s+/i', $trimmed) === 1) {
             return true;
         }
-        // JWT 格式：三段 base64 用 . 连接
+        // JWT 格式始终脱敏
         if (preg_match('/^eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/', $trimmed) === 1) {
             return true;
         }
-        // 较长（>= 16 字符）且字符密度高（字母/数字占比 > 80%），疑似 token/key
-        if (strlen($trimmed) >= 16) {
+        // 高熵字符串脱敏由开关控制，避免误伤 UUID/订单号等
+        if (self::$autoMaskHighEntropyStrings && strlen($trimmed) >= 16) {
             $alnumCount = preg_match_all('/[A-Za-z0-9]/', $trimmed);
             if ($alnumCount / strlen($trimmed) >= 0.8) {
                 return true;
@@ -813,12 +879,54 @@ class Logs
                     continue;
                 }
                 $prop->setAccessible(true);
-                $custom[$propName] = $prop->getValue($exception);
+                $value = $prop->getValue($exception);
+
+                // 属性名命中敏感词时，键名与值均脱敏
+                if (self::isSensitiveKey($propName)) {
+                    $maskedName = preg_replace('/^(.{1,3}).*$/', '$1***', $propName);
+                    $custom[$maskedName] = '***';
+                    continue;
+                }
+
+                // 值本身若是长高熵字符串，替换为提示
+                if (is_string($value) && strlen($value) >= 16) {
+                    if (self::looksLikeSensitiveString($value)) {
+                        $value = '***(sensitive string)';
+                    } elseif (self::$autoMaskHighEntropyStrings) {
+                        $alnumCount = preg_match_all('/[A-Za-z0-9]/', $value);
+                        if ($alnumCount / strlen($value) >= 0.8) {
+                            $value = '***(high entropy)';
+                        }
+                    }
+                }
+
+                $custom[$propName] = $value;
             }
         } catch (\Throwable $e) {
             // 反射失败忽略
         }
         return $custom;
+    }
+
+    /**
+     * 判断当前是否运行在生产环境（通过 APP_ENV / ENV 常量判断）。
+     */
+    private static function isProductionEnv(): bool
+    {
+        $env = defined('APP_ENV') ? APP_ENV : (defined('ENV') ? ENV : '');
+        return in_array(strtolower($env), ['production', 'prod'], true);
+    }
+
+    /**
+     * 获取带微秒精度的时间字符串（Y-m-d H:i:s.u）。
+     * 基于 microtime() 构造，绕过 DateTime 在某些环境下微秒为 000000 的问题。
+     */
+    private static function getMicrotimeDatetime(): string
+    {
+        $mtime = sprintf('%.6f', microtime(true));
+        $sec = (int) $mtime;
+        $usec = (int) substr($mtime, strpos($mtime, '.') + 1);
+        return date('Y-m-d H:i:s', $sec) . '.' . str_pad((string) $usec, 6, '0', STR_PAD_LEFT);
     }
 
     private static function truncateBytes(string $string, int $maxBytes): string
@@ -838,5 +946,21 @@ class Logs
             $sub = substr($sub, 0, -1);
         }
         return $sub . '...(truncated)';
+    }
+
+    /** 防止实例化 */
+    private function __construct()
+    {
+    }
+
+    /** 防止克隆 */
+    private function __clone()
+    {
+    }
+
+    /** 防止反序列化 */
+    public function __wakeup()
+    {
+        throw new \RuntimeException('Cannot unserialize ' . __CLASS__);
     }
 }
