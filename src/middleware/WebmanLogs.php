@@ -3,7 +3,6 @@
 namespace Nermif\Logs\middleware;
 
 use Nermif\Logs\Logs;
-use Ramsey\Uuid\Uuid;
 use Webman\MiddlewareInterface;
 use Webman\Http\Response;
 use Webman\Http\Request;
