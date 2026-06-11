@@ -103,7 +103,11 @@ class Logs
     private const DEFAULT_LOG_DIR = 'logs';
 
     /**
-     * 设置日志根目录（必须为绝对路径，且位于项目根目录内）
+     * 设置日志根目录（必须为绝对路径且可写）。
+     *
+     * 注意：仅检测路径存在与可写权限，不再强制必须位于项目根下。
+     * 因为 webman / ThinkPHP 5.x/6.x/8.x 对 ROOT_PATH 的定义方式和位置各不同，
+     * 且生产环境常希望把日志落到独立磁盘或系统日志目录。
      */
     public static function setBasePath(string $path): void
     {
@@ -116,11 +120,11 @@ class Logs
             throw new \InvalidArgumentException("Invalid or non-writable log base path: {$path}");
         }
 
-        $root = defined('ROOT_PATH') ? realpath(ROOT_PATH) : null;
-        if ($root !== null) {
-            $root = rtrim($root, '/\\') . DIRECTORY_SEPARATOR;
-            if (strpos($realPath . DIRECTORY_SEPARATOR, $root) !== 0) {
-                throw new \InvalidArgumentException("Log path must be inside project root: {$path}");
+        // ThinkPHP 定义了 ROOT_PATH 时做一次软提示（仅警告级别），帮助开发者定位配置问题
+        if (defined('ROOT_PATH')) {
+            $root = rtrim(realpath(ROOT_PATH), '/\\') . DIRECTORY_SEPARATOR;
+            if ($root !== false && strpos($realPath . DIRECTORY_SEPARATOR, $root) !== 0) {
+                error_log('Logs::setBasePath - 日志目录 [' . $realPath . '] 不在项目根 [' . $root . '] 下，请确认符合部署策略');
             }
         }
 
@@ -179,31 +183,34 @@ class Logs
     }
 
     /**
-     * 初始化当前协程的请求标识
+     * 初始化当前协程/请求的日志上下文。
+     *
+     * 注意：在 Webman / ThinkPHP 常驻 / Workerman 等长驻进程中，
+     * 非协程环境下多次请求会共享同一个 `__main__` 槽位，
+     * 因此必须每次都清零 feat / request_id，禁止基于"已有 request_id 就跳过"的短路逻辑。
      */
     public static function initRequest(?string $requestId = null): void
     {
         $ctx = &self::context();
-        if (!empty($ctx['request_id'])) {
-            return;
-        }
+        $isCoroutine = self::isCoroutineContext();
+
+        // 协程环境下同一个 cid 通常只会进入一次 initRequest（由中间件触发），
+        // 但为安全起见仍然强制重置 feat，避免上层业务重复调用产生污染。
+        $ctx['feat'] = null;
 
         if ($requestId === null || $requestId === '') {
             if (method_exists(Uuid::class, 'uuid7')) {
-                // 支持 v7 (需要 ramsey/uuid >=4.5.0)
                 $uuid = Uuid::uuid7();
             } else {
-                // 回退到 v4
                 $uuid = Uuid::uuid4();
             }
             $requestId = $uuid->toString();
         }
         $ctx['request_id'] = $requestId;
 
-        if (extension_loaded('Swoole') && class_exists('Swoole\Coroutine', false) && \Swoole\Coroutine::getCid() > 0) {
-            \Swoole\Coroutine::defer(function () {
-                self::endRequest();
-            });
+        // 自动清理：优先走各协程/框架的 defer 机制，否则由中间件在请求结束时显式调用 endRequest()。
+        if ($isCoroutine && extension_loaded('swoole') && class_exists('Swoole\Coroutine', false) && \Swoole\Coroutine::getCid() > 0) {
+            \Swoole\Coroutine::defer([self::class, 'endRequest']);
         }
     }
 
@@ -346,7 +353,8 @@ class Logs
     {
         $cid = self::getCoroutineId();
         if (!isset(self::$contexts[$cid])) {
-            if (count(self::$contexts) > 10000) {
+            // 在高并发常驻进程下降低触发阈值，避免内存线性增长
+            if (count(self::$contexts) > 512) {
                 self::gcContexts();
             }
             self::$contexts[$cid] = [
@@ -361,8 +369,8 @@ class Logs
     private static function gcContexts(): void
     {
         $now = time();
-        $hardLimit = 50000;
-        $emergencyTtl = 3600;
+        $hardLimit = 2048;
+        $emergencyTtl = 300;
         $count = count(self::$contexts);
 
         foreach (self::$contexts as $key => $val) {
@@ -378,21 +386,63 @@ class Logs
                 unset(self::$contexts[$key]);
             }
         }
+
+        // 兜底：若仍然超过硬上限，按创建时间清理最老的 50%
+        if (count(self::$contexts) > $hardLimit) {
+            uasort(self::$contexts, function ($a, $b) {
+                return ($a['created_at'] ?? 0) <=> ($b['created_at'] ?? 0);
+            });
+            $keepFrom = (int) (count(self::$contexts) * 0.5);
+            $keys = array_slice(array_keys(self::$contexts), 0, $keepFrom);
+            foreach ($keys as $key) {
+                unset(self::$contexts[$key]);
+            }
+            error_log('Logs::gcContexts - 上下文数量超过硬上限，执行兜底清理，保留 ' . count(self::$contexts) . ' 条');
+        }
+    }
+
+    /**
+     * 判断当前是否处于协程（Swoole / Swow / Fiber）上下文中
+     */
+    private static function isCoroutineContext(): bool
+    {
+        if (extension_loaded('swoole') && class_exists('Swoole\Coroutine', false)) {
+            $cid = @\Swoole\Coroutine::getCid();
+            if ($cid !== false && $cid > 0) {
+                return true;
+            }
+        }
+        if (extension_loaded('swow') && class_exists('Swow\Coroutine', false) && method_exists('Swow\Coroutine', 'getCurrent')) {
+            $coroutine = @\Swow\Coroutine::getCurrent();
+            if ($coroutine !== null) {
+                return true;
+            }
+        }
+        if (PHP_VERSION_ID >= 80100 && class_exists('Fiber', false) && method_exists('Fiber', 'getCurrent')) {
+            $fiber = @\Fiber::getCurrent();
+            if ($fiber !== null) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static function getCoroutineId(): string
     {
-        if (extension_loaded('Swoole') && class_exists('Swoole\Coroutine', false) && \Swoole\Coroutine::getCid() > 0) {
-            return 'swoole_' . \Swoole\Coroutine::getCid();
+        if (extension_loaded('swoole') && class_exists('Swoole\Coroutine', false)) {
+            $cid = @\Swoole\Coroutine::getCid();
+            if ($cid !== false && $cid > 0) {
+                return 'swoole_' . $cid;
+            }
         }
-        if (extension_loaded('Swow') && class_exists('Swow\Coroutine', false)) {
-            $coroutine = \Swow\Coroutine::getCurrent();
-            if ($coroutine !== null) {
+        if (extension_loaded('swow') && class_exists('Swow\Coroutine', false) && method_exists('Swow\Coroutine', 'getCurrent')) {
+            $coroutine = @\Swow\Coroutine::getCurrent();
+            if ($coroutine !== null && method_exists($coroutine, 'getId')) {
                 return 'swow_' . $coroutine->getId();
             }
         }
-        if (PHP_VERSION_ID >= 80100 && class_exists('Fiber', false)) {
-            $fiber = \Fiber::getCurrent();
+        if (PHP_VERSION_ID >= 80100 && class_exists('Fiber', false) && method_exists('Fiber', 'getCurrent')) {
+            $fiber = @\Fiber::getCurrent();
             if ($fiber !== null) {
                 return 'fiber_' . spl_object_id($fiber);
             }
