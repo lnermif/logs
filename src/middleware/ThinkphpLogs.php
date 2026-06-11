@@ -20,7 +20,7 @@ class ThinkphpLogs
      */
     public function handle($request, \Closure $next)
     {
-        Logs::initRequest();
+        Logs::init();
 
         $response = $next($request);
 

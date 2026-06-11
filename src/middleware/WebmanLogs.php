@@ -12,7 +12,7 @@ class WebmanLogs implements MiddlewareInterface
 {
     public function process(Request $request, callable $handler): Response
     {
-        Logs::initRequest();
+        Logs::init();
 
         $response = $handler($request);
 

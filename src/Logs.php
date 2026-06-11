@@ -11,7 +11,7 @@ use Ramsey\Uuid\Uuid;
  *
  * 用法：
  *   Logs::setBasePath('/path/to/runtime/log2');
- *   Logs::initRequest('来自前端的 X-Request-Id');                       // null 自动生成 UUID
+ *   Logs::init('来自前端的 X-Request-Id');                              // null 自动生成 UUID
  *   Logs::feat('order');                                              // 设置后，后续日志均会携带 "feat":"order"
  *   Logs::endRequest();                                               // 常驻进程必须调用（Swoole 自动清理）
  *
@@ -189,12 +189,12 @@ class Logs
      * 非协程环境下多次请求会共享同一个 `__main__` 槽位，
      * 因此必须每次都清零 feat / request_id，禁止基于"已有 request_id 就跳过"的短路逻辑。
      */
-    public static function initRequest(?string $requestId = null): void
+    public static function init(?string $requestId = null): void
     {
         $ctx = &self::context();
         $isCoroutine = self::isCoroutineContext();
 
-        // 协程环境下同一个 cid 通常只会进入一次 initRequest（由中间件触发），
+        // 协程环境下同一个 cid 通常只会进入一次 init（由中间件触发），
         // 但为安全起见仍然强制重置 feat，避免上层业务重复调用产生污染。
         $ctx['feat'] = null;
 
