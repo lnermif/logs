@@ -97,6 +97,9 @@ class Logs
     /** @var bool 是否清理消息中的控制字符 */
     private static $sanitizeMessage = true;
 
+    /** @var bool 是否展开异常堆栈参数的值（默认关闭以避免泄漏敏感信息） */
+    private static $expandTraceArgs = false;
+
     private const DEFAULT_LOG_DIR = 'logs';
 
     /**
@@ -165,6 +168,14 @@ class Logs
     public static function setSanitizeMessage(bool $sanitize): void
     {
         self::$sanitizeMessage = $sanitize;
+    }
+
+    /**
+     * 设置是否展开异常堆栈中的参数值（默认 false 以避免泄漏敏感信息）
+     */
+    public static function setExpandTraceArgs(bool $expand): void
+    {
+        self::$expandTraceArgs = $expand;
     }
 
     /**
@@ -411,17 +422,36 @@ class Logs
                 return $file;
             }
 
-            $seq = 1;
-            do {
-                $rollFile = $file . '.' . $seq;
-                $seq++;
-            } while (is_file($rollFile));
+            $lockHandle = fopen($file . '.rotatelock', 'c');
+            $locked = $lockHandle !== false && flock($lockHandle, LOCK_EX);
 
-            if (!@rename($file, $rollFile)) {
-                error_log("Log rotation failed: {$file}");
-                self::$lastRotationFailTime = time();
+            if ($locked) {
+                try {
+                    if (!is_file($file) || filesize($file) <= self::MAX_FILE_SIZE) {
+                        return $file;
+                    }
+
+                    $seq = 1;
+                    do {
+                        $rollFile = $file . '.' . $seq;
+                        $seq++;
+                    } while (is_file($rollFile));
+
+                    if (!@rename($file, $rollFile)) {
+                        error_log("Log rotation failed: {$file}");
+                        self::$lastRotationFailTime = time();
+                    } else {
+                        self::$lastRotationFailTime = 0;
+                    }
+                } finally {
+                    flock($lockHandle, LOCK_UN);
+                    if ($lockHandle !== false) {
+                        fclose($lockHandle);
+                    }
+                }
             } else {
-                self::$lastRotationFailTime = 0;
+                error_log("Log rotation lock failed: {$file}");
+                self::$lastRotationFailTime = time();
             }
         }
 
@@ -438,7 +468,7 @@ class Logs
         }
 
         // thinkphp 5.0
-        if (define('RUNTIME_PATH')) {
+        if (defined('RUNTIME_PATH')) {
             return rtrim(RUNTIME_PATH, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR . $logDir;
         }
 
@@ -522,7 +552,49 @@ class Logs
     }
 
     /**
-     * 格式化异常堆栈（包含详细参数值）
+     * 判断字符串 key 是否命中敏感字段列表
+     */
+    private static function isSensitiveKey(string $key): bool
+    {
+        $lower = strtolower($key);
+        foreach (self::$sensitiveKeys as $sensitive) {
+            if (strpos($lower, $sensitive) !== false) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * 启发式判断字符串值是否像敏感信息（长随机串 / Bearer token / JWT / 明显 key=value 形式）
+     */
+    private static function looksLikeSensitiveString(string $value): bool
+    {
+        $trimmed = trim($value);
+        if ($trimmed === '') {
+            return false;
+        }
+
+        // Bearer / Basic 等 Authorization 头
+        if (preg_match('/^(Bearer|Basic|Token|OAuth)\s+/i', $trimmed) === 1) {
+            return true;
+        }
+        // JWT 格式：三段 base64 用 . 连接
+        if (preg_match('/^eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/', $trimmed) === 1) {
+            return true;
+        }
+        // 较长（>= 16 字符）且字符密度高（字母/数字占比 > 80%），疑似 token/key
+        if (strlen($trimmed) >= 16) {
+            $alnumCount = preg_match_all('/[A-Za-z0-9]/', $trimmed);
+            if ($alnumCount / strlen($trimmed) >= 0.8) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * 格式化异常堆栈（默认只输出参数类型，开启 expandTraceArgs 后展开值）
      */
     private static function formatTrace(array $trace): string
     {
@@ -539,8 +611,14 @@ class Logs
             $objects = new \SplObjectStorage();
             if (!empty($frame['args'])) {
                 $args = [];
-                foreach ($frame['args'] as $arg) {
-                    $args[] = self::formatArg($arg, 0, $objects);
+                if (self::$expandTraceArgs) {
+                    foreach ($frame['args'] as $arg) {
+                        $args[] = self::formatArg($arg, 0, $objects, true);
+                    }
+                } else {
+                    foreach ($frame['args'] as $arg) {
+                        $args[] = self::describeArgType($arg);
+                    }
                 }
                 $line .= implode(', ', $args);
             }
@@ -551,9 +629,42 @@ class Logs
     }
 
     /**
-     * 格式化单个参数（递归展开数组、对象，限制深度和长度）
+     * 仅描述参数的类型与规模，不展开值，避免泄漏敏感信息
      */
-    private static function formatArg($arg, int $depth = 0, ?\SplObjectStorage $objects = null): string
+    private static function describeArgType($arg): string
+    {
+        if (is_null($arg)) {
+            return 'null';
+        }
+        if (is_bool($arg)) {
+            return 'bool';
+        }
+        if (is_int($arg)) {
+            return 'int';
+        }
+        if (is_float($arg)) {
+            return 'float';
+        }
+        if (is_string($arg)) {
+            return 'string(' . strlen($arg) . ')';
+        }
+        if (is_array($arg)) {
+            return 'array(' . count($arg) . ')';
+        }
+        if (is_object($arg)) {
+            return 'object(' . get_class($arg) . ')';
+        }
+        if (is_resource($arg)) {
+            return 'resource(' . get_resource_type($arg) . ')';
+        }
+        return gettype($arg);
+    }
+
+    /**
+     * 格式化单个参数（递归展开数组、对象，限制深度和长度）
+     * @param bool $isTraceContext 是否处于异常堆栈上下文中（会对字符串参数做启发式脱敏）
+     */
+    private static function formatArg($arg, int $depth = 0, ?\SplObjectStorage $objects = null, bool $isTraceContext = false): string
     {
         if ($depth > 3) {
             return '...';
@@ -573,6 +684,9 @@ class Logs
         }
         if (is_string($arg)) {
             $str = $arg;
+            if ($isTraceContext && self::looksLikeSensitiveString($str)) {
+                return "'***(masked string " . strlen($str) . ")'";
+            }
             if (mb_strlen($str, 'UTF-8') > 100) {
                 $str = mb_substr($str, 0, 100, 'UTF-8') . '…';
             }
@@ -596,10 +710,15 @@ class Logs
                     $items[] = '…(' . ($count - $i) . ' more)';
                     break;
                 }
+                if ($isTraceContext && is_string($key) && self::isSensitiveKey($key)) {
+                    $items[] = "'" . addcslashes($key, "'\\") . "' => '***(masked)'";
+                    $i++;
+                    continue;
+                }
                 $safeKey = is_string($key)
                     ? "'" . addcslashes($key, "'\\") . "'"
                     : (string)$key;
-                $items[] = $safeKey . ' => ' . self::formatArg($val, $depth + 1, $objects);
+                $items[] = $safeKey . ' => ' . self::formatArg($val, $depth + 1, $objects, $isTraceContext);
                 $i++;
             }
             return '[' . implode(', ', $items) . ']';

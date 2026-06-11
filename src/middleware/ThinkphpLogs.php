@@ -27,9 +27,7 @@ class ThinkphpLogs
             ]);
         }
 
-        if (PHP_SAPI === 'cli') {
-            Logs::endRequest();
-        }
+        Logs::endRequest();
 
         return $response;
     }

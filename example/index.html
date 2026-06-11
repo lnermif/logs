@@ -397,10 +397,7 @@
                 const searchKw = filter.searchText.trim();
                 if (searchKw) {
                     const kw = searchKw.toLowerCase();
-                    list = list.filter(e =>
-                        (e.message || '').toLowerCase().includes(kw) ||
-                        JSON.stringify(e.context || {}).toLowerCase().includes(kw)
-                    );
+                    list = list.filter(e => (e._search || '').includes(kw));
                 }
                 return list;
             });
@@ -449,12 +446,21 @@
                     try {
                         const obj = JSON.parse(line);
                         if (obj && typeof obj === 'object') {
+                            const message = obj.message || '';
+                            const context = obj.context || {};
+                            let contextText = '';
+                            try {
+                                contextText = JSON.stringify(context);
+                            } catch (e) {
+                                contextText = '';
+                            }
                             entries.push({
                                 datetime: obj.datetime || '',
                                 request_id: obj.request_id || null,
                                 level: obj.level || 'UNKNOWN',
-                                message: obj.message || '',
-                                context: obj.context || {},
+                                message: message,
+                                context: context,
+                                _search: ((message || '') + ' ' + contextText).toLowerCase()
                             });
                         }
                     } catch (e) {}
