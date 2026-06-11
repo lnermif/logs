@@ -25,9 +25,9 @@ class ThinkphpLogs
         $response = $next($request);
 
         if ($response instanceof Response) {
-            $requestId = (string) Logs::getRequestId();
-            if ($requestId !== '') {
-                self::setResponseHeader($response, 'X-Request-Id', $requestId);
+            $traceId = (string) Logs::getTraceId();
+            if ($traceId !== '') {
+                self::setResponseHeader($response, 'X-Trace-Id', $traceId);
             }
         }
 

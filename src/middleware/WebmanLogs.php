@@ -17,7 +17,7 @@ class WebmanLogs implements MiddlewareInterface
         $response = $handler($request);
 
         if ($response instanceof Response) {
-            $response->header('X-Request-Id', Logs::getRequestId());
+            $response->header('X-Trace-Id', Logs::getTraceId());
         }
 
         Logs::endRequest();

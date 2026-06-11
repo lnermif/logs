@@ -11,7 +11,7 @@ use Ramsey\Uuid\Uuid;
  *
  * 用法：
  *   Logs::setBasePath('/path/to/runtime/log2');
- *   Logs::init('来自前端的 X-Request-Id');                              // null 自动生成 UUID
+ *   Logs::init('来自前端的 X-Trace-Id');                                // null 自动生成 UUID
  *   Logs::feat('order');                                              // 设置后，后续日志均会携带 "feat":"order"
  *   Logs::endRequest();                                               // 常驻进程必须调用（Swoole 自动清理）
  *
@@ -31,7 +31,7 @@ use Ramsey\Uuid\Uuid;
  *   Logs::error($e);                                                  // 只传异常
  *
  * 特性：
- *   - 协程隔离 request_id 和 feat，防止并发串扰。
+ *   - 协程隔离 trace_id 和 feat，防止并发串扰。
  *   - 所有日志写入同一主文件（按年月/日分割），通过 feat 字段标识来源，不拆分文件。
  *   - 异常对象自动提取消息、堆栈、额外属性（含 protected/private），堆栈参数详细展开。
  *   - JSON 单行输出，带微秒时间戳，便于日志分析工具处理。
@@ -187,9 +187,9 @@ class Logs
      *
      * 注意：在 Webman / ThinkPHP 常驻 / Workerman 等长驻进程中，
      * 非协程环境下多次请求会共享同一个 `__main__` 槽位，
-     * 因此必须每次都清零 feat / request_id，禁止基于"已有 request_id 就跳过"的短路逻辑。
+     * 因此必须每次都清零 feat / trace_id，禁止基于"已有 trace_id 就跳过"的短路逻辑。
      */
-    public static function init(?string $requestId = null): void
+    public static function init(?string $traceId = null): void
     {
         $ctx = &self::context();
         $isCoroutine = self::isCoroutineContext();
@@ -198,15 +198,15 @@ class Logs
         // 但为安全起见仍然强制重置 feat，避免上层业务重复调用产生污染。
         $ctx['feat'] = null;
 
-        if ($requestId === null || $requestId === '') {
+        if ($traceId === null || $traceId === '') {
             if (method_exists(Uuid::class, 'uuid7')) {
                 $uuid = Uuid::uuid7();
             } else {
                 $uuid = Uuid::uuid4();
             }
-            $requestId = $uuid->toString();
+            $traceId = $uuid->toString();
         }
-        $ctx['request_id'] = $requestId;
+        $ctx['trace_id'] = $traceId;
 
         // 自动清理：优先走各协程/框架的 defer 机制，否则由中间件在请求结束时显式调用 endRequest()。
         if ($isCoroutine && extension_loaded('swoole') && class_exists('Swoole\Coroutine', false) && \Swoole\Coroutine::getCid() > 0) {
@@ -238,9 +238,9 @@ class Logs
         }
     }
 
-    public static function getRequestId(): ?string
+    public static function getTraceId(): ?string
     {
-        return self::context()['request_id'] ?? null;
+        return self::context()['trace_id'] ?? null;
     }
 
     // ---------- 快捷方法（支持异常直接传入） ----------
@@ -323,7 +323,7 @@ class Logs
 
         $data = [
             'datetime' => (new \DateTime())->format('Y-m-d H:i:s.u'),
-            'request_id' => $ctx['request_id'] ?? null,
+            'trace_id' => $ctx['trace_id'] ?? null,
             'feat' => $ctx['feat'] ?? null,          // 新增 feat 字段
             'level' => $levelName,
             'message' => $message,
@@ -358,7 +358,7 @@ class Logs
                 self::gcContexts();
             }
             self::$contexts[$cid] = [
-                'request_id' => null,
+                'trace_id' => null,
                 'feat' => null,
                 'created_at' => time(),
             ];
@@ -374,7 +374,7 @@ class Logs
         $count = count(self::$contexts);
 
         foreach (self::$contexts as $key => $val) {
-            if ($val['request_id'] === null && $val['feat'] === null) {
+            if ($val['trace_id'] === null && $val['feat'] === null) {
                 unset(self::$contexts[$key]);
                 continue;
             }

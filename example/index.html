@@ -272,8 +272,8 @@
                    style="display:none" @change="handleFileSelect" />
 
             <div class="filter-item" style="flex:0 0 180px;">
-                <label>🆔 Request ID</label>
-                <el-select v-model="filter.requestId" clearable placeholder="全部"
+                <label>🆔 Trace ID</label>
+                <el-select v-model="filter.traceId" clearable placeholder="全部"
                            size="small" filterable allow-create>
                     <el-option v-for="id in uniqueIds" :key="id" :label="id.substring(0,36)+(id.length>36?'…':'')" :value="id" />
                 </el-select>
@@ -372,7 +372,7 @@
         setup() {
             const allEntries = ref([]);
             const filter = reactive({
-                requestId: '',
+                traceId: '',
                 startTime: '',
                 endTime: '',
                 searchText: ''
@@ -385,13 +385,13 @@
 
             const uniqueIds = computed(() => {
                 const ids = new Set();
-                allEntries.value.forEach(e => { if (e.request_id) ids.add(e.request_id); });
+                allEntries.value.forEach(e => { if (e.trace_id) ids.add(e.trace_id); });
                 return [...ids].sort();
             });
 
             const filteredEntries = computed(() => {
                 let list = allEntries.value;
-                if (filter.requestId) list = list.filter(e => e.request_id === filter.requestId);
+                if (filter.traceId) list = list.filter(e => e.trace_id === filter.traceId);
                 if (filter.startTime) list = list.filter(e => e.datetime >= filter.startTime);
                 if (filter.endTime) list = list.filter(e => e.datetime <= filter.endTime);
                 const searchKw = filter.searchText.trim();
@@ -410,7 +410,7 @@
 
             const activeFilterDesc = computed(() => {
                 const parts = [];
-                if (filter.requestId) parts.push('ID: ' + filter.requestId.substring(0, 12) + '…');
+                if (filter.traceId) parts.push('ID: ' + filter.traceId.substring(0, 12) + '…');
                 if (filter.startTime) parts.push('≥' + filter.startTime);
                 if (filter.endTime) parts.push('≤' + filter.endTime);
                 if (filter.searchText) parts.push('“' + filter.searchText + '”');
@@ -456,7 +456,7 @@
                             }
                             entries.push({
                                 datetime: obj.datetime || '',
-                                request_id: obj.request_id || null,
+                                trace_id: obj.trace_id || null,
                                 level: obj.level || 'UNKNOWN',
                                 message: message,
                                 context: context,
@@ -500,7 +500,7 @@
 
             const applyFilter = () => {};
             const clearFilter = () => {
-                filter.requestId = '';
+                filter.traceId = '';
                 filter.startTime = '';
                 filter.endTime = '';
                 filter.searchText = '';
