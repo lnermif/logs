@@ -599,7 +599,7 @@ class Logs
 
         $result = [];
         foreach ($context as $key => $value) {
-            if (in_array(strtolower((string)$key), self::$sensitiveKeys, true)) {
+            if (self::isSensitiveKey((string) $key)) {
                 $result[$key] = '***';
                 continue;
             }
@@ -682,7 +682,8 @@ class Logs
 
     /**
      * 启发式判断字符串值是否像敏感信息。
-     * Bearer/JWT 格式始终脱敏；高熵字符串（长随机串）由 $autoMaskHighEntropyStrings 开关控制。
+     * 仅检测明确的格式特征（Bearer/JWT），高熵长随机串的脱敏由 extractExceptionExtra
+     * 中单独的开关控制，保持关注点分离。
      */
     private static function looksLikeSensitiveString(string $value): bool
     {
@@ -698,13 +699,6 @@ class Logs
         // JWT 格式始终脱敏
         if (preg_match('/^eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/', $trimmed) === 1) {
             return true;
-        }
-        // 高熵字符串脱敏由开关控制，避免误伤 UUID/订单号等
-        if (self::$autoMaskHighEntropyStrings && strlen($trimmed) >= 16) {
-            $alnumCount = preg_match_all('/[A-Za-z0-9]/', $trimmed);
-            if ($alnumCount / strlen($trimmed) >= 0.8) {
-                return true;
-            }
         }
         return false;
     }
