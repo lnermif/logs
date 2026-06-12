@@ -2,28 +2,42 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>日志时间线 · Vue + Element Plus</title>
-    <link rel="stylesheet" href="https://unpkg.com/element-plus/dist/index.css" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <title>日志时间线 · 等级筛选 & Trace ID</title>
+<!--    <link href="https://cdn.staticfile.net/element-plus/2.11.4/index.min.css" rel="stylesheet">-->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/element-plus@2.14.2/dist/index.min.css">
     <style>
-        :root {
-            --bg: #f5f7fa;
-            --card-bg: #ffffff;
+        /* 基础布局 - 让时间线容器完全贴底并自适应高度 */
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
         }
+
+        html, body {
+            height: 100%;
+            background: #f5f7fa;
+        }
+
         body {
             margin: 0;
-            background: var(--bg);
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
             color: #303133;
+            overflow: hidden;   /* 禁止body滚动，让内部#app滚动 */
         }
+
         #app {
+            height: 100%;
+            display: flex;
+            flex-direction: column;
             max-width: 1400px;
             margin: 0 auto;
             padding: 16px 20px;
-            display: flex;
-            flex-direction: column;
             gap: 12px;
+            overflow-y: auto;   /* 当整体内容超出时滚动，但这里主要由时间线内部滚动 */
         }
+
+        /* 头部、卡片区域自适应收缩 */
         .app-header {
             display: flex;
             align-items: center;
@@ -32,6 +46,7 @@
             font-weight: 700;
             color: #1d1d1f;
             letter-spacing: -0.3px;
+            flex-shrink: 0;
         }
         .app-header .icon { font-size: 26px; }
         .tag {
@@ -48,7 +63,9 @@
             box-shadow: 0 1px 3px rgba(0,0,0,0.04);
             border: 1px solid #ebeef5;
             padding: 14px 16px;
+            flex-shrink: 0;
         }
+        /* 拖拽上传区域 */
         .upload-drag {
             display: flex;
             align-items: center;
@@ -111,6 +128,7 @@
             gap: 18px;
             font-size: 12px;
             color: #606266;
+            flex-shrink: 0;
         }
         .stats .dot {
             display: inline-block;
@@ -134,13 +152,20 @@
             display: flex;
             gap: 4px;
         }
+
+        /* 时间线容器：填满剩余所有垂直空间，内部滚动 */
         .timeline-container {
-            max-height: 60vh;
-            overflow-y: auto;
+            flex: 1;               /* 占满剩余高度 */
+            min-height: 0;         /* flex限制溢出 */
             border-radius: 8px;
             border: 1px solid #ebeef5;
             background: #f9fafb;
+            overflow-y: auto;      /* 滚动条 */
+            display: flex;
+            flex-direction: column;
         }
+
+        /* 列表样式 */
         .log-entry {
             display: flex;
             align-items: flex-start;
@@ -149,6 +174,7 @@
             background: #fff;
             border-left: 3px solid transparent;
             transition: background 0.1s;
+            flex-shrink: 0;
         }
         .log-entry:hover { background: #fdfdff; }
         .log-entry.striped { background: #fbfbfd; }
@@ -222,9 +248,15 @@
         .context-toggle { color: #409eff; font-size: 11px; cursor: pointer; background: none; border: none; padding: 2px 0; }
         .context-content { display: none; background: #f8f9fa; border: 1px solid #e4e7ed; border-radius: 4px; padding: 8px 10px; margin-top: 4px; font-family: monospace; font-size: 10.5px; white-space: pre-wrap; word-break: break-all; max-height: 140px; overflow-y: auto; }
         .context-content.open { display: block; }
-        .empty-text { text-align: center; padding: 40px; color: #c0c4cc; }
-
-        /* 新增复制图标按钮样式 */
+        .empty-text {
+            text-align: center;
+            padding: 40px;
+            color: #c0c4cc;
+            flex: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
         .copy-icon-btn {
             background: transparent;
             border: 1px solid #dcdfe6;
@@ -245,9 +277,17 @@
             border-color: #c6e2ff;
             background: #ecf5ff;
         }
-        .copy-icon-btn:active {
-            color: #3a8ee6;
-            border-color: #3a8ee6;
+        .level-select .el-select__tags-text {
+            font-size: 11px;
+        }
+        /* 适应小屏，内部滚动依然完美 */
+        @media (max-width: 800px) {
+            #app {
+                padding: 12px 12px;
+            }
+            .log-time {
+                flex-basis: 100px;
+            }
         }
     </style>
 </head>
@@ -255,7 +295,7 @@
 <div id="app">
     <div class="app-header">
         <span class="icon">📋</span> 日志时间线
-        <span class="tag">JSON Lines</span>
+        <span class="tag">JSON Lines · 等级筛选 · Trace ID</span>
     </div>
 
     <div class="card">
@@ -271,11 +311,26 @@
             <input type="file" ref="fileInput" accept=".log,.txt,.json" multiple
                    style="display:none" @change="handleFileSelect" />
 
-            <div class="filter-item" style="flex:0 0 180px;">
-                <label>🆔 Request ID</label>
-                <el-select v-model="filter.requestId" clearable placeholder="全部"
+            <div class="filter-item" style="flex:0 0 170px;">
+                <label>🎚️ 日志等级</label>
+                <el-select v-model="filter.levelList" multiple clearable collapse-tags
+                           placeholder="全部等级" size="small" class="level-select">
+                    <el-option
+                            v-for="level in availableLevels"
+                            :key="level"
+                            :label="level"
+                            :value="level">
+                        <span :style="{ display: 'inline-block', width: '70px', fontWeight: 'bold' }">{{ level }}</span>
+                        <span style="color:#909399; font-size:11px;">日志条目</span>
+                    </el-option>
+                </el-select>
+            </div>
+
+            <div class="filter-item" style="flex:0 0 190px;">
+                <label>🆔 Trace ID</label>
+                <el-select v-model="filter.traceId" clearable placeholder="全部"
                            size="small" filterable allow-create>
-                    <el-option v-for="id in uniqueIds" :key="id" :label="id.substring(0,36)+(id.length>36?'…':'')" :value="id" />
+                    <el-option v-for="id in uniqueTraceIds" :key="id" :label="id.substring(0,36)+(id.length>36?'…':'')" :value="id" />
                 </el-select>
             </div>
             <div class="filter-item" style="flex:0 0 150px;">
@@ -295,14 +350,14 @@
             </div>
             <div class="btn-group">
                 <el-button type="primary" size="small" @click="applyFilter">筛选</el-button>
-                <el-button size="small" @click="clearFilter">清除</el-button>
+                <el-button size="small" @click="clearAllData">清除全部</el-button>
             </div>
         </div>
     </div>
 
     <div class="card stats">
         <span><span class="dot"></span>总条目 <strong>{{ allEntries.length }}</strong></span>
-        <span><span class="dot"></span>唯一 ID <strong>{{ uniqueIds.length }}</strong></span>
+        <span><span class="dot"></span>唯一 Trace ID <strong>{{ uniqueTraceIds.length }}</strong></span>
         <span><span class="dot active"></span>当前显示 <strong>{{ filteredEntries.length }}</strong></span>
         <span v-if="activeFilterDesc" style="margin-right:auto;">
             <el-tag type="info" size="small">{{ activeFilterDesc }}</el-tag>
@@ -313,19 +368,26 @@
                     ↑ 正序
                 </el-button>
                 <el-button :type="sortOrder === 'desc' ? 'primary' : ''" size="small" @click="setSortOrder('desc')">
-                    ↓ 倒序
+                    ↓ 倒序 (默认)
                 </el-button>
             </el-button-group>
         </div>
     </div>
 
+    <!-- 时间线容器，自动填充剩余高度到底部 -->
     <div class="timeline-container" ref="timelineContainer">
         <div v-if="sortedEntries.length === 0" class="empty-text">
-            <template v-if="filter.searchText.trim()">
+            <template v-if="allEntries.length === 0">
+                ⬆️ 请上传日志文件开始分析（支持 .log / .txt / .json，JSON Lines格式）
+            </template>
+            <template v-else-if="filter.searchText.trim()">
                 📭 未找到包含 "<strong>{{ filter.searchText.trim() }}</strong>" 的日志
             </template>
+            <template v-else-if="filter.levelList.length">
+                📭 没有符合当前等级筛选的日志，请调整等级条件
+            </template>
             <template v-else>
-                ⬆️ 请上传日志文件开始分析
+                📭 未匹配任何日志，请调整过滤条件
             </template>
         </div>
         <div v-for="(entry, idx) in sortedEntries" :key="idx"
@@ -363,8 +425,8 @@
     </div>
 </div>
 
-<script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
-<script src="https://unpkg.com/element-plus"></script>
+<script src="https://cdn.jsdelivr.net/npm/vue@3.5.38/dist/vue.global.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/element-plus@2.14.2/dist/index.full.min.js"></script>
 <script>
     const { createApp, ref, computed, reactive } = Vue;
 
@@ -372,28 +434,43 @@
         setup() {
             const allEntries = ref([]);
             const filter = reactive({
-                requestId: '',
+                traceId: '',
                 startTime: '',
                 endTime: '',
-                searchText: ''
+                searchText: '',
+                levelList: []
             });
             const showTrace = reactive({});
             const showContext = reactive({});
             const isDragover = ref(false);
             const fileInput = ref(null);
-            const sortOrder = ref('asc');
+            const sortOrder = ref('desc');  // 默认倒序
 
-            const uniqueIds = computed(() => {
+            const levelPriority = ["DEBUG","INFO","NOTICE","WARNING","ERROR","CRITICAL","ALERT","EMERGENCY"];
+            const availableLevels = computed(() => {
+                const levelSet = new Set();
+                allEntries.value.forEach(entry => {
+                    if (entry.level) levelSet.add(entry.level);
+                });
+                const sorted = levelPriority.filter(lvl => levelSet.has(lvl));
+                const extra = [...levelSet].filter(lvl => !levelPriority.includes(lvl)).sort();
+                return [...sorted, ...extra];
+            });
+
+            const uniqueTraceIds = computed(() => {
                 const ids = new Set();
-                allEntries.value.forEach(e => { if (e.request_id) ids.add(e.request_id); });
+                allEntries.value.forEach(e => { if (e.trace_id) ids.add(e.trace_id); });
                 return [...ids].sort();
             });
 
             const filteredEntries = computed(() => {
                 let list = allEntries.value;
-                if (filter.requestId) list = list.filter(e => e.request_id === filter.requestId);
+                if (filter.traceId) list = list.filter(e => e.trace_id === filter.traceId);
                 if (filter.startTime) list = list.filter(e => e.datetime >= filter.startTime);
                 if (filter.endTime) list = list.filter(e => e.datetime <= filter.endTime);
+                if (filter.levelList && filter.levelList.length > 0) {
+                    list = list.filter(e => filter.levelList.includes(e.level));
+                }
                 const searchKw = filter.searchText.trim();
                 if (searchKw) {
                     const kw = searchKw.toLowerCase();
@@ -407,13 +484,17 @@
 
             const sortedEntries = computed(() => {
                 const list = [...filteredEntries.value];
-                list.sort((a, b) => a.datetime.localeCompare(b.datetime));
+                if (list.length === 0) return [];
+                list.sort((a, b) => (a.datetime || '').localeCompare(b.datetime || ''));
                 return sortOrder.value === 'desc' ? list.reverse() : list;
             });
 
             const activeFilterDesc = computed(() => {
                 const parts = [];
-                if (filter.requestId) parts.push('ID: ' + filter.requestId.substring(0, 12) + '…');
+                if (filter.levelList && filter.levelList.length) {
+                    parts.push(`等级: ${filter.levelList.join(',')}`);
+                }
+                if (filter.traceId) parts.push('Trace: ' + filter.traceId.substring(0, 12) + '…');
                 if (filter.startTime) parts.push('≥' + filter.startTime);
                 if (filter.endTime) parts.push('≤' + filter.endTime);
                 if (filter.searchText) parts.push('“' + filter.searchText + '”');
@@ -449,10 +530,16 @@
                     try {
                         const obj = JSON.parse(line);
                         if (obj && typeof obj === 'object') {
+                            let traceId = obj.trace_id || obj.request_id || null;
+                            if (traceId !== undefined && traceId !== null) {
+                                traceId = String(traceId);
+                            }
+                            let levelRaw = obj.level || 'UNKNOWN';
+                            const levelUpper = String(levelRaw).toUpperCase();
                             entries.push({
                                 datetime: obj.datetime || '',
-                                request_id: obj.request_id || null,
-                                level: obj.level || 'UNKNOWN',
+                                trace_id: traceId,
+                                level: levelUpper,
                                 message: obj.message || '',
                                 context: obj.context || {},
                             });
@@ -462,8 +549,40 @@
                 return entries;
             };
 
+            const resetToggleStates = () => {
+                Object.keys(showTrace).forEach(k => delete showTrace[k]);
+                Object.keys(showContext).forEach(k => delete showContext[k]);
+            };
+
+            const clearAllData = () => {
+                allEntries.value = [];
+                filter.traceId = '';
+                filter.startTime = '';
+                filter.endTime = '';
+                filter.searchText = '';
+                filter.levelList = [];
+                sortOrder.value = 'desc';
+                resetToggleStates();
+                if (fileInput.value) {
+                    fileInput.value.value = '';
+                }
+                ElementPlus.ElMessage.success('已清空所有日志和筛选条件');
+            };
+
+            const applyFilter = () => {
+                ElementPlus.ElMessage.info('筛选已应用');
+            };
+
             const processFiles = (files) => {
-                if (!files.length) return;
+                if (!files || !files.length) return;
+                allEntries.value = [];
+                resetToggleStates();
+                filter.traceId = '';
+                filter.startTime = '';
+                filter.endTime = '';
+                filter.searchText = '';
+                filter.levelList = [];
+                sortOrder.value = 'desc';
                 const readers = [];
                 for (const f of files) {
                     readers.push(new Promise((resolve, reject) => {
@@ -475,8 +594,13 @@
                 }
                 Promise.all(readers).then(results => {
                     const combined = results.join('\n');
-                    allEntries.value = parseLogText(combined);
-                    clearFilter();
+                    const parsed = parseLogText(combined);
+                    allEntries.value = parsed;
+                    if (parsed.length === 0) {
+                        ElementPlus.ElMessage.warning('文件解析后无有效日志，请确保格式为JSON Lines');
+                    } else {
+                        ElementPlus.ElMessage.success(`成功加载 ${parsed.length} 条日志，默认倒序排列`);
+                    }
                 }).catch(err => {
                     ElementPlus.ElMessage.error('文件读取失败: ' + err.message);
                 });
@@ -485,22 +609,11 @@
             const triggerUpload = () => fileInput.value.click();
             const handleFileSelect = (e) => {
                 processFiles(e.target.files);
-                e.target.value = ''; // 允许重复上传同一文件
+                e.target.value = '';
             };
             const handleDrop = (e) => {
                 isDragover.value = false;
                 processFiles(e.dataTransfer.files);
-            };
-
-            const applyFilter = () => {};
-            const clearFilter = () => {
-                filter.requestId = '';
-                filter.startTime = '';
-                filter.endTime = '';
-                filter.searchText = '';
-                Object.keys(showTrace).forEach(k => delete showTrace[k]);
-                Object.keys(showContext).forEach(k => delete showContext[k]);
-                sortOrder.value = 'asc';
             };
 
             const setSortOrder = (order) => { sortOrder.value = order; };
@@ -517,11 +630,11 @@
 
             return {
                 allEntries, filter, isDragover, fileInput,
-                uniqueIds, filteredEntries, sortedEntries, activeFilterDesc,
-                showTrace, showContext, sortOrder,
+                uniqueTraceIds, filteredEntries, sortedEntries, activeFilterDesc,
+                showTrace, showContext, sortOrder, availableLevels,
                 isErrorLevel, exceptionObj, otherContextKeys, formatContext,
                 triggerUpload, handleFileSelect, handleDrop,
-                applyFilter, clearFilter, setSortOrder, toggleTrace, toggleContext,
+                applyFilter, clearAllData, setSortOrder, toggleTrace, toggleContext,
                 copyContext
             };
         }
