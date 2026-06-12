@@ -177,73 +177,106 @@
   .feed-empty-icon { font-size: 36px; opacity: 0.35; font-weight: 700; }
   .feed-empty p { font-size: 13px; max-width: 360px; line-height: 1.6; }
 
+  /* ── log entry ── */
   .log-entry {
-    display: grid;
-    grid-template-columns: 1fr auto;
-    grid-template-rows: auto auto;
-    gap: 0 10px;
-    padding: 9px 16px;
-    border-left: 3px solid transparent;
-    border-bottom: 1px solid var(--border-light);
+    display: flex; flex-direction: column;
+    padding: 10px 16px 10px 0;
+    border-left: 4px solid transparent;
     cursor: pointer;
-    transition: background 0.1s;
+    transition: background 0.08s;
   }
   .log-entry:hover { background: var(--bg-hover); }
+
+  /* level border accent + background tint */
   .log-entry.level-DEBUG    { border-left-color: var(--lvl-debug); }
   .log-entry.level-INFO     { border-left-color: var(--lvl-info); }
   .log-entry.level-NOTICE   { border-left-color: var(--lvl-notice); }
   .log-entry.level-WARNING  { border-left-color: var(--lvl-warning); background: #fffbeb; }
+  .log-entry.level-WARNING:hover { background: #fff7d6; }
   .log-entry.level-ERROR    { border-left-color: var(--lvl-error); background: #fef2f2; }
+  .log-entry.level-ERROR:hover { background: #fde3e3; }
   .log-entry.level-CRITICAL { border-left-color: var(--lvl-critical); background: #fee2e2; }
+  .log-entry.level-CRITICAL:hover { background: #fdd0d0; }
   .log-entry.level-ALERT    { border-left-color: var(--lvl-alert); background: #fecaca; }
+  .log-entry.level-ALERT:hover { background: #fdb5b5; }
   .log-entry.level-EMERGENCY{ border-left-color: var(--lvl-emergency); background: #fca5a5; }
+  .log-entry.level-EMERGENCY:hover { background: #fb8c8c; }
 
+  /* alternating stripe (light entries only) */
+  .log-entry.level-DEBUG:nth-child(even),
+  .log-entry.level-INFO:nth-child(even),
+  .log-entry.level-NOTICE:nth-child(even) { background: #f8fafc; }
+  .log-entry.level-DEBUG:nth-child(even):hover,
+  .log-entry.level-INFO:nth-child(even):hover,
+  .log-entry.level-NOTICE:nth-child(even):hover { background: #f1f5f9; }
+
+  /* ── main row: time + badge + message + feat + arrow ── */
   .log-main {
-    display: flex; align-items: flex-start; gap: 10px; min-width: 0;
+    display: flex; align-items: flex-start; gap: 0; min-width: 0;
+    padding-left: 12px;
+  }
+
+  /* time column ─ fixed width, right-aligned text */
+  .log-time-wrap {
+    flex: 0 0 155px; text-align: right; padding-right: 14px;
+    padding-top: 3px; flex-shrink: 0;
   }
   .log-time {
-    font-family: 'JetBrains Mono', monospace; font-size: 11px;
-    color: var(--text-muted); white-space: nowrap; padding-top: 2px; flex-shrink: 0;
+    font-family: 'JetBrains Mono', monospace; font-size: 10.5px;
+    color: var(--text-muted); white-space: nowrap;
   }
   .log-time .usec { color: #cbd5e1; }
 
-  /* ⭐ Fixed-width badge: all level labels align on the same vertical line */
+  /* badge column ─ fixed width */
+  .log-badge-wrap {
+    flex: 0 0 76px; padding-right: 14px; flex-shrink: 0; padding-top: 1px;
+  }
   .log-badge {
-    font-family: 'JetBrains Mono', monospace; font-size: 9px; font-weight: 600;
-    padding: 2px 0; border-radius: 3px; letter-spacing: 0.2px;
-    flex-shrink: 0; margin-top: 2px;
-    width: 72px; text-align: center; display: inline-block;
+    font-family: 'JetBrains Mono', monospace; font-size: 10px; font-weight: 700;
+    padding: 2px 0; border-radius: 4px; letter-spacing: 0.3px;
+    width: 76px; text-align: center; display: inline-block;
+    text-transform: uppercase;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.04);
   }
-  .badge-DEBUG     { background: #e5e7eb; color: #6b7280; }
-  .badge-INFO      { background: #dbeafe; color: #2563eb; }
-  .badge-NOTICE    { background: #d1fae5; color: #059669; }
-  .badge-WARNING   { background: #fef3c7; color: #d97706; }
-  .badge-ERROR     { background: #fee2e2; color: #dc2626; }
-  .badge-CRITICAL  { background: #fecaca; color: #b91c1c; }
-  .badge-ALERT     { background: #fca5a5; color: #991b1b; }
-  .badge-EMERGENCY { background: #fca5a5; color: #7f1d1d; }
+  .badge-DEBUG     { background: #d1d5db; color: #4b5563; }
+  .badge-INFO      { background: #bfdbfe; color: #1d4ed8; }
+  .badge-NOTICE    { background: #a7f3d0; color: #047857; }
+  .badge-WARNING   { background: #fde68a; color: #b45309; }
+  .badge-ERROR     { background: #fecaca; color: #b91c1c; }
+  .badge-CRITICAL  { background: #fca5a5; color: #991b1b; }
+  .badge-ALERT     { background: #fca5a5; color: #7f1d1d; }
+  .badge-EMERGENCY { background: #f87171; color: #fff; }
 
+  /* message ─ fills remaining space */
   .log-message {
-    font-size: 13px; font-weight: 500; line-height: 1.4;
-    word-break: break-word; flex: 1; min-width: 0; color: var(--text-primary);
+    flex: 1; min-width: 0;
+    font-size: 13px; font-weight: 500; line-height: 1.5;
+    word-break: break-word; color: var(--text-primary);
+    padding-top: 2px;
   }
+
+  /* feat ─ right side tag */
   .log-feat {
     font-size: 10px; font-family: 'JetBrains Mono', monospace;
     color: var(--purple); background: var(--purple-dim);
-    padding: 1px 7px; border-radius: 3px; white-space: nowrap;
-    margin-left: auto; flex-shrink: 0;
+    padding: 2px 8px; border-radius: 4px; white-space: nowrap;
+    margin: 2px 8px 0 auto; flex-shrink: 0;
   }
+
+  /* expand arrow */
   .log-expand-icon {
-    grid-row: 1 / 2; grid-column: 2 / 3; align-self: center;
-    color: var(--text-muted); font-size: 10px; transition: transform 0.2s;
+    flex-shrink: 0; margin-top: 3px;
+    color: var(--text-muted); font-size: 9px; transition: transform 0.2s;
+    padding: 0 2px; user-select: none;
   }
   .log-expand-icon.open { transform: rotate(180deg); }
 
-  /* Expanded detail */
+  /* separator between entries (not on the last) */
+  .log-entry + .log-entry { border-top: 1px solid var(--border-light); }
+
+  /* expanded detail */
   .log-detail {
-    grid-row: 2 / 3; grid-column: 1 / 3;
-    display: none; padding-top: 8px; margin-top: 6px;
-    border-top: 1px solid var(--border-light);
+    display: none; padding: 10px 12px 4px 88px; margin-top: 6px;
   }
   .log-entry.expanded .log-detail { display: block; }
   .detail-section { margin-bottom: 10px; }
@@ -458,14 +491,16 @@
          :class="[`level-${entry.level}`, {expanded: expandedSet.has(entry._key)}]"
          @click="toggleExpand(entry._key)">
       <div class="log-main">
-        <span class="log-time">
-          {{ formatTime(entry.datetime) }}<span class="usec">{{ formatUsec(entry.datetime) }}</span>
+        <span class="log-time-wrap">
+          <span class="log-time">{{ formatTime(entry.datetime) }}<span class="usec">{{ formatUsec(entry.datetime) }}</span></span>
         </span>
-        <span class="log-badge" :class="'badge-' + entry.level">{{ entry.level }}</span>
+        <span class="log-badge-wrap">
+          <span class="log-badge" :class="'badge-' + entry.level">{{ entry.level }}</span>
+        </span>
         <span class="log-message">{{ entry.message }}</span>
         <span class="log-feat" v-if="entry.feat">{{ entry.feat }}</span>
+        <span class="log-expand-icon" :class="{open: expandedSet.has(entry._key)}">▾</span>
       </div>
-      <span class="log-expand-icon" :class="{open: expandedSet.has(entry._key)}">▾</span>
       <div class="log-detail">
         <div v-if="entry.trace_id" class="detail-section">
           <div class="detail-header"><span>Trace ID</span></div>
