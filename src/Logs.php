@@ -11,7 +11,7 @@ use Ramsey\Uuid\Uuid;
  *
  * 用法：
  *   Logs::setBasePath('/path/to/runtime/log2');
- *   Logs::initRequest('来自前端的 X-Request-Id');                       // null 自动生成 UUID
+ *   Logs::init('来自前端的 X-Trace-Id');                                // null 自动生成 UUID
  *   Logs::feat('order');                                              // 设置后，后续日志均会携带 "feat":"order"
  *   Logs::endRequest();                                               // 常驻进程必须调用（Swoole 自动清理）
  *
@@ -31,7 +31,7 @@ use Ramsey\Uuid\Uuid;
  *   Logs::error($e);                                                  // 只传异常
  *
  * 特性：
- *   - 协程隔离 request_id 和 feat，防止并发串扰。
+ *   - 协程隔离 trace_id 和 feat，防止并发串扰。
  *   - 所有日志写入同一主文件（按年月/日分割），通过 feat 字段标识来源，不拆分文件。
  *   - 异常对象自动提取消息、堆栈、额外属性（含 protected/private），堆栈参数详细展开。
  *   - JSON 单行输出，带微秒时间戳，便于日志分析工具处理。
@@ -97,10 +97,23 @@ class Logs
     /** @var bool 是否清理消息中的控制字符 */
     private static $sanitizeMessage = true;
 
+    /** @var bool 是否展开异常堆栈参数的值（默认关闭以避免泄漏敏感信息） */
+    private static $expandTraceArgs = false;
+
+    /** @var bool 是否对高熵字符串（如长随机 token）自动脱敏，默认关闭以保证可读性 */
+    private static $autoMaskHighEntropyStrings = false;
+
+    /** @var string 敏感键名匹配模式：'contains' 子串匹配（默认，兼容），'exact' 精确匹配 */
+    private static $sensitiveKeyMatchMode = 'contains';
+
     private const DEFAULT_LOG_DIR = 'logs';
 
     /**
-     * 设置日志根目录（必须为绝对路径，且位于项目根目录内）
+     * 设置日志根目录（必须为绝对路径且可写）。
+     *
+     * 注意：仅检测路径存在与可写权限，不再强制必须位于项目根下。
+     * 因为 webman / ThinkPHP 5.x/6.x/8.x 对 ROOT_PATH 的定义方式和位置各不同，
+     * 且生产环境常希望把日志落到独立磁盘或系统日志目录。
      */
     public static function setBasePath(string $path): void
     {
@@ -113,11 +126,11 @@ class Logs
             throw new \InvalidArgumentException("Invalid or non-writable log base path: {$path}");
         }
 
-        $root = defined('ROOT_PATH') ? realpath(ROOT_PATH) : null;
-        if ($root !== null) {
-            $root = rtrim($root, '/\\') . DIRECTORY_SEPARATOR;
-            if (strpos($realPath . DIRECTORY_SEPARATOR, $root) !== 0) {
-                throw new \InvalidArgumentException("Log path must be inside project root: {$path}");
+        // ThinkPHP 定义了 ROOT_PATH 时做一次软提示（仅警告级别），帮助开发者定位配置问题
+        if (defined('ROOT_PATH')) {
+            $root = rtrim(realpath(ROOT_PATH), '/\\') . DIRECTORY_SEPARATOR;
+            if ($root !== false && strpos($realPath . DIRECTORY_SEPARATOR, $root) !== 0) {
+                error_log('Logs::setBasePath - 日志目录 [' . $realPath . '] 不在项目根 [' . $root . '] 下，请确认符合部署策略');
             }
         }
 
@@ -168,31 +181,64 @@ class Logs
     }
 
     /**
-     * 初始化当前协程的请求标识
+     * 设置是否展开异常堆栈中的参数值（默认 false 以避免泄漏敏感信息）
      */
-    public static function initRequest(?string $requestId = null): void
+    public static function setExpandTraceArgs(bool $expand): void
+    {
+        self::$expandTraceArgs = $expand;
+    }
+
+    /**
+     * 设置是否对高熵字符串（如长随机 token/JWT/Bearer）自动脱敏，默认关闭。
+     * 关闭时仅对明确命中的 Bearer/JWT 格式脱敏，UUID/订单号等正常记录。
+     */
+    public static function setAutoMaskHighEntropyStrings(bool $auto): void
+    {
+        self::$autoMaskHighEntropyStrings = $auto;
+    }
+
+    /**
+     * 设置敏感键名的匹配策略。
+     * - 'contains'：子串包含匹配（默认，兼容旧行为），如 'secret' 匹配 'my_secret_key'
+     * - 'exact'：精确匹配，如 'secret' 只匹配键名恰好为 'secret' 的字段
+     */
+    public static function setSensitiveKeyMatchMode(string $mode): void
+    {
+        if (!in_array($mode, ['contains', 'exact'], true)) {
+            throw new \InvalidArgumentException('Sensitive key match mode must be "contains" or "exact"');
+        }
+        self::$sensitiveKeyMatchMode = $mode;
+    }
+
+    /**
+     * 初始化当前协程/请求的日志上下文。
+     *
+     * 注意：在 Webman / ThinkPHP 常驻 / Workerman 等长驻进程中，
+     * 非协程环境下多次请求会共享同一个 `__main__` 槽位，
+     * 因此必须每次都清零 feat / trace_id，禁止基于"已有 trace_id 就跳过"的短路逻辑。
+     */
+    public static function init(?string $traceId = null): void
     {
         $ctx = &self::context();
-        if (!empty($ctx['request_id'])) {
-            return;
-        }
+        $isCoroutine = self::isCoroutineContext();
 
-        if ($requestId === null || $requestId === '') {
+        // 协程环境下同一个 cid 通常只会进入一次 init（由中间件触发），
+        // 但为安全起见仍然强制重置 feat，避免上层业务重复调用产生污染。
+        $ctx['feat'] = null;
+
+        if ($traceId === null || $traceId === '') {
             if (method_exists(Uuid::class, 'uuid7')) {
-                // 支持 v7 (需要 ramsey/uuid >=4.5.0)
                 $uuid = Uuid::uuid7();
             } else {
-                // 回退到 v4
                 $uuid = Uuid::uuid4();
             }
-            $requestId = $uuid->toString();
+            $traceId = $uuid->toString();
         }
-        $ctx['request_id'] = $requestId;
+        $ctx['trace_id'] = $traceId;
 
-        if (extension_loaded('Swoole') && class_exists('Swoole\Coroutine', false) && \Swoole\Coroutine::getCid() > 0) {
-            \Swoole\Coroutine::defer(function () {
-                self::endRequest();
-            });
+        // 自动清理：优先走各协程/框架的 defer 机制，否则由中间件在请求结束时显式调用 endRequest()。
+        if ($isCoroutine && extension_loaded('swoole') && class_exists('Swoole\Coroutine', false) && \Swoole\Coroutine::getCid() > 0) {
+            \Swoole\Coroutine::defer([self::class, 'endRequest']);
         }
     }
 
@@ -220,9 +266,9 @@ class Logs
         }
     }
 
-    public static function getRequestId(): ?string
+    public static function getTraceId(): ?string
     {
-        return self::context()['request_id'] ?? null;
+        return self::context()['trace_id'] ?? null;
     }
 
     // ---------- 快捷方法（支持异常直接传入） ----------
@@ -304,8 +350,8 @@ class Logs
         $ctx = self::context();
 
         $data = [
-            'datetime' => (new \DateTime())->format('Y-m-d H:i:s.u'),
-            'request_id' => $ctx['request_id'] ?? null,
+            'datetime' => self::getMicrotimeDatetime(),
+            'trace_id' => $ctx['trace_id'] ?? null,
             'feat' => $ctx['feat'] ?? null,          // 新增 feat 字段
             'level' => $levelName,
             'message' => $message,
@@ -335,11 +381,12 @@ class Logs
     {
         $cid = self::getCoroutineId();
         if (!isset(self::$contexts[$cid])) {
-            if (count(self::$contexts) > 10000) {
+            // 在高并发常驻进程下降低触发阈值，避免内存线性增长
+            if (count(self::$contexts) > 512) {
                 self::gcContexts();
             }
             self::$contexts[$cid] = [
-                'request_id' => null,
+                'trace_id' => null,
                 'feat' => null,
                 'created_at' => time(),
             ];
@@ -350,12 +397,12 @@ class Logs
     private static function gcContexts(): void
     {
         $now = time();
-        $hardLimit = 50000;
-        $emergencyTtl = 3600;
+        $hardLimit = 2048;
+        $emergencyTtl = 300;
         $count = count(self::$contexts);
 
         foreach (self::$contexts as $key => $val) {
-            if ($val['request_id'] === null && $val['feat'] === null) {
+            if ($val['trace_id'] === null && $val['feat'] === null) {
                 unset(self::$contexts[$key]);
                 continue;
             }
@@ -367,21 +414,63 @@ class Logs
                 unset(self::$contexts[$key]);
             }
         }
+
+        // 兜底：若仍然超过硬上限，按创建时间清理最老的 50%
+        if (count(self::$contexts) > $hardLimit) {
+            uasort(self::$contexts, function ($a, $b) {
+                return ($a['created_at'] ?? 0) <=> ($b['created_at'] ?? 0);
+            });
+            $keepFrom = (int) (count(self::$contexts) * 0.5);
+            $keys = array_slice(array_keys(self::$contexts), 0, $keepFrom);
+            foreach ($keys as $key) {
+                unset(self::$contexts[$key]);
+            }
+            error_log('Logs::gcContexts - 上下文数量超过硬上限，执行兜底清理，保留 ' . count(self::$contexts) . ' 条');
+        }
+    }
+
+    /**
+     * 判断当前是否处于协程（Swoole / Swow / Fiber）上下文中
+     */
+    private static function isCoroutineContext(): bool
+    {
+        if (extension_loaded('swoole') && class_exists('Swoole\Coroutine', false)) {
+            $cid = @\Swoole\Coroutine::getCid();
+            if ($cid !== false && $cid > 0) {
+                return true;
+            }
+        }
+        if (extension_loaded('swow') && class_exists('Swow\Coroutine', false) && method_exists('Swow\Coroutine', 'getCurrent')) {
+            $coroutine = @\Swow\Coroutine::getCurrent();
+            if ($coroutine !== null) {
+                return true;
+            }
+        }
+        if (PHP_VERSION_ID >= 80100 && class_exists('Fiber', false) && method_exists('Fiber', 'getCurrent')) {
+            $fiber = @\Fiber::getCurrent();
+            if ($fiber !== null) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static function getCoroutineId(): string
     {
-        if (extension_loaded('Swoole') && class_exists('Swoole\Coroutine', false) && \Swoole\Coroutine::getCid() > 0) {
-            return 'swoole_' . \Swoole\Coroutine::getCid();
+        if (extension_loaded('swoole') && class_exists('Swoole\Coroutine', false)) {
+            $cid = @\Swoole\Coroutine::getCid();
+            if ($cid !== false && $cid > 0) {
+                return 'swoole_' . $cid;
+            }
         }
-        if (extension_loaded('Swow') && class_exists('Swow\Coroutine', false)) {
-            $coroutine = \Swow\Coroutine::getCurrent();
-            if ($coroutine !== null) {
+        if (extension_loaded('swow') && class_exists('Swow\Coroutine', false) && method_exists('Swow\Coroutine', 'getCurrent')) {
+            $coroutine = @\Swow\Coroutine::getCurrent();
+            if ($coroutine !== null && method_exists($coroutine, 'getId')) {
                 return 'swow_' . $coroutine->getId();
             }
         }
-        if (PHP_VERSION_ID >= 80100 && class_exists('Fiber', false)) {
-            $fiber = \Fiber::getCurrent();
+        if (PHP_VERSION_ID >= 80100 && class_exists('Fiber', false) && method_exists('Fiber', 'getCurrent')) {
+            $fiber = @\Fiber::getCurrent();
             if ($fiber !== null) {
                 return 'fiber_' . spl_object_id($fiber);
             }
@@ -392,6 +481,14 @@ class Logs
     private static function buildLogFilePath(?string $feat): string
     {
         $base = self::$basePath ?: self::getDefaultBasePath();
+
+        // 未显式调用 setBasePath 时在开发环境告警，帮助快速发现配置遗漏
+        if (self::$basePath === '' && php_sapi_name() !== 'cli' && !self::isProductionEnv()) {
+            trigger_error(
+                'Logs::setBasePath() has not been called; log path fell back to: ' . $base,
+                E_USER_WARNING
+            );
+        }
         $ym = date('Ym');
         $day = date('Ymd');
         // feat 不再影响文件名，统一使用主日志名
@@ -411,17 +508,55 @@ class Logs
                 return $file;
             }
 
-            $seq = 1;
-            do {
-                $rollFile = $file . '.' . $seq;
-                $seq++;
-            } while (is_file($rollFile));
+            $lockFile = $file . '.rotatelock';
+            $lockHandle = @fopen($lockFile, 'c+');
+            $locked = $lockHandle !== false && flock($lockHandle, LOCK_EX | LOCK_NB);
 
-            if (!@rename($file, $rollFile)) {
-                error_log("Log rotation failed: {$file}");
-                self::$lastRotationFailTime = time();
+            if ($locked) {
+                try {
+                    // 锁过期清理：读取锁文件中的时间戳，超过 LOCK_TTL 秒视为过期锁
+                    $lockTtl = 300;
+                    $stat = fstat($lockHandle);
+                    if ($stat['size'] > 0) {
+                        rewind($lockHandle);
+                        $lockTs = (int) fread($lockHandle, $stat['size']);
+                        if ($lockTs > 0 && time() - $lockTs > $lockTtl) {
+                            ftruncate($lockHandle, 0);
+                            rewind($lockHandle);
+                        }
+                    }
+
+                    // 双重检查：持锁后再次确认文件大小
+                    if (!is_file($file) || filesize($file) <= self::MAX_FILE_SIZE) {
+                        return $file;
+                    }
+
+                    // 时间戳后缀命名，一次生成唯一文件，无 O(n) 扫描
+                    $rollFile = $file . '.' . date('YmdHis');
+                    if (is_file($rollFile)) {
+                        $rollFile .= '.' . bin2hex(random_bytes(3));
+                    }
+
+                    if (!@rename($file, $rollFile)) {
+                        error_log("Log rotation failed: {$file}");
+                        self::$lastRotationFailTime = time();
+                    } else {
+                        self::$lastRotationFailTime = 0;
+                        // 轮转成功后 touch 新主文件，保证日志文件始终存在
+                        @touch($file);
+                    }
+
+                    // 写入心跳时间戳
+                    rewind($lockHandle);
+                    fwrite($lockHandle, (string) time());
+                    fflush($lockHandle);
+                } finally {
+                    flock($lockHandle, LOCK_UN);
+                    fclose($lockHandle);
+                }
             } else {
-                self::$lastRotationFailTime = 0;
+                error_log("Log rotation lock failed: {$file}");
+                self::$lastRotationFailTime = time();
             }
         }
 
@@ -438,12 +573,12 @@ class Logs
         }
 
         // thinkphp 5.0
-        if (defined('\RUNTIME_PATH')) {
-            return rtrim(\RUNTIME_PATH, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR . $logDir;
+        if (defined('RUNTIME_PATH')) {
+            return rtrim(RUNTIME_PATH, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR . $logDir;
         }
 
-        if (defined('\ROOT_PATH')) {
-            return rtrim(\ROOT_PATH, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR . 'runtime' . DIRECTORY_SEPARATOR . $logDir;
+        if (defined('ROOT_PATH')) {
+            return rtrim(ROOT_PATH, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR . 'runtime' . DIRECTORY_SEPARATOR . $logDir;
         }
 
         return dirname(__DIR__, 3) . DIRECTORY_SEPARATOR . 'runtime' . DIRECTORY_SEPARATOR . $logDir;
@@ -464,7 +599,7 @@ class Logs
 
         $result = [];
         foreach ($context as $key => $value) {
-            if (in_array(strtolower((string)$key), self::$sensitiveKeys, true)) {
+            if (self::isSensitiveKey((string) $key)) {
                 $result[$key] = '***';
                 continue;
             }
@@ -491,7 +626,11 @@ class Logs
                     if (is_array($serialized)) {
                         $result[$key] = self::normalizeContext($serialized, $depth + 1);
                     } else {
-                        $result[$key] = self::truncateBytes((string)$serialized, self::MAX_FIELD_LEN);
+                        // 非数组返回值包装为结构化形式，保留可读性
+                        $result[$key] = [
+                            'type' => gettype($serialized),
+                            'value' => self::truncateBytes((string) $serialized, self::MAX_FIELD_LEN),
+                        ];
                     }
                 } elseif (method_exists($value, '__toString')) {
                     $result[$key] = self::truncateBytes((string)$value, self::MAX_FIELD_LEN);
@@ -522,7 +661,50 @@ class Logs
     }
 
     /**
-     * 格式化异常堆栈（包含详细参数值）
+     * 判断字符串 key 是否命中敏感字段列表（支持 contains/exact 两种匹配策略）
+     */
+    private static function isSensitiveKey(string $key): bool
+    {
+        $lower = strtolower($key);
+        foreach (self::$sensitiveKeys as $sensitive) {
+            if (self::$sensitiveKeyMatchMode === 'exact') {
+                if ($lower === $sensitive) {
+                    return true;
+                }
+            } else {
+                if (strpos($lower, $sensitive) !== false) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    /**
+     * 启发式判断字符串值是否像敏感信息。
+     * 仅检测明确的格式特征（Bearer/JWT），高熵长随机串的脱敏由 extractExceptionExtra
+     * 中单独的开关控制，保持关注点分离。
+     */
+    private static function looksLikeSensitiveString(string $value): bool
+    {
+        $trimmed = trim($value);
+        if ($trimmed === '') {
+            return false;
+        }
+
+        // Bearer / Basic 等 Authorization 头始终脱敏
+        if (preg_match('/^(Bearer|Basic|Token|OAuth)\s+/i', $trimmed) === 1) {
+            return true;
+        }
+        // JWT 格式始终脱敏
+        if (preg_match('/^eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/', $trimmed) === 1) {
+            return true;
+        }
+        return false;
+    }
+
+    /**
+     * 格式化异常堆栈（默认只输出参数类型，开启 expandTraceArgs 后展开值）
      */
     private static function formatTrace(array $trace): string
     {
@@ -539,8 +721,14 @@ class Logs
             $objects = new \SplObjectStorage();
             if (!empty($frame['args'])) {
                 $args = [];
-                foreach ($frame['args'] as $arg) {
-                    $args[] = self::formatArg($arg, 0, $objects);
+                if (self::$expandTraceArgs) {
+                    foreach ($frame['args'] as $arg) {
+                        $args[] = self::formatArg($arg, 0, $objects, true);
+                    }
+                } else {
+                    foreach ($frame['args'] as $arg) {
+                        $args[] = self::describeArgType($arg);
+                    }
                 }
                 $line .= implode(', ', $args);
             }
@@ -551,9 +739,42 @@ class Logs
     }
 
     /**
-     * 格式化单个参数（递归展开数组、对象，限制深度和长度）
+     * 仅描述参数的类型与规模，不展开值，避免泄漏敏感信息
      */
-    private static function formatArg($arg, int $depth = 0, ?\SplObjectStorage $objects = null): string
+    private static function describeArgType($arg): string
+    {
+        if (is_null($arg)) {
+            return 'null';
+        }
+        if (is_bool($arg)) {
+            return 'bool';
+        }
+        if (is_int($arg)) {
+            return 'int';
+        }
+        if (is_float($arg)) {
+            return 'float';
+        }
+        if (is_string($arg)) {
+            return 'string(' . strlen($arg) . ')';
+        }
+        if (is_array($arg)) {
+            return 'array(' . count($arg) . ')';
+        }
+        if (is_object($arg)) {
+            return 'object(' . get_class($arg) . ')';
+        }
+        if (is_resource($arg)) {
+            return 'resource(' . get_resource_type($arg) . ')';
+        }
+        return gettype($arg);
+    }
+
+    /**
+     * 格式化单个参数（递归展开数组、对象，限制深度和长度）
+     * @param bool $isTraceContext 是否处于异常堆栈上下文中（会对字符串参数做启发式脱敏）
+     */
+    private static function formatArg($arg, int $depth = 0, ?\SplObjectStorage $objects = null, bool $isTraceContext = false): string
     {
         if ($depth > 3) {
             return '...';
@@ -573,6 +794,9 @@ class Logs
         }
         if (is_string($arg)) {
             $str = $arg;
+            if ($isTraceContext && self::looksLikeSensitiveString($str)) {
+                return "'***(masked string " . strlen($str) . ")'";
+            }
             if (mb_strlen($str, 'UTF-8') > 100) {
                 $str = mb_substr($str, 0, 100, 'UTF-8') . '…';
             }
@@ -596,10 +820,15 @@ class Logs
                     $items[] = '…(' . ($count - $i) . ' more)';
                     break;
                 }
+                if ($isTraceContext && is_string($key) && self::isSensitiveKey($key)) {
+                    $items[] = "'" . addcslashes($key, "'\\") . "' => '***(masked)'";
+                    $i++;
+                    continue;
+                }
                 $safeKey = is_string($key)
                     ? "'" . addcslashes($key, "'\\") . "'"
                     : (string)$key;
-                $items[] = $safeKey . ' => ' . self::formatArg($val, $depth + 1, $objects);
+                $items[] = $safeKey . ' => ' . self::formatArg($val, $depth + 1, $objects, $isTraceContext);
                 $i++;
             }
             return '[' . implode(', ', $items) . ']';
@@ -644,12 +873,54 @@ class Logs
                     continue;
                 }
                 $prop->setAccessible(true);
-                $custom[$propName] = $prop->getValue($exception);
+                $value = $prop->getValue($exception);
+
+                // 属性名命中敏感词时，键名与值均脱敏
+                if (self::isSensitiveKey($propName)) {
+                    $maskedName = preg_replace('/^(.{1,3}).*$/', '$1***', $propName);
+                    $custom[$maskedName] = '***';
+                    continue;
+                }
+
+                // 值本身若是长高熵字符串，替换为提示
+                if (is_string($value) && strlen($value) >= 16) {
+                    if (self::looksLikeSensitiveString($value)) {
+                        $value = '***(sensitive string)';
+                    } elseif (self::$autoMaskHighEntropyStrings) {
+                        $alnumCount = preg_match_all('/[A-Za-z0-9]/', $value);
+                        if ($alnumCount / strlen($value) >= 0.8) {
+                            $value = '***(high entropy)';
+                        }
+                    }
+                }
+
+                $custom[$propName] = $value;
             }
         } catch (\Throwable $e) {
             // 反射失败忽略
         }
         return $custom;
+    }
+
+    /**
+     * 判断当前是否运行在生产环境（通过 APP_ENV / ENV 常量判断）。
+     */
+    private static function isProductionEnv(): bool
+    {
+        $env = defined('APP_ENV') ? APP_ENV : (defined('ENV') ? ENV : '');
+        return in_array(strtolower($env), ['production', 'prod'], true);
+    }
+
+    /**
+     * 获取带微秒精度的时间字符串（Y-m-d H:i:s.u）。
+     * 基于 microtime() 构造，绕过 DateTime 在某些环境下微秒为 000000 的问题。
+     */
+    private static function getMicrotimeDatetime(): string
+    {
+        $mtime = sprintf('%.6f', microtime(true));
+        $sec = (int) $mtime;
+        $usec = (int) substr($mtime, strpos($mtime, '.') + 1);
+        return date('Y-m-d H:i:s', $sec) . '.' . str_pad((string) $usec, 6, '0', STR_PAD_LEFT);
     }
 
     private static function truncateBytes(string $string, int $maxBytes): string
@@ -669,5 +940,21 @@ class Logs
             $sub = substr($sub, 0, -1);
         }
         return $sub . '...(truncated)';
+    }
+
+    /** 防止实例化 */
+    private function __construct()
+    {
+    }
+
+    /** 防止克隆 */
+    private function __clone()
+    {
+    }
+
+    /** 防止反序列化 */
+    public function __wakeup()
+    {
+        throw new \RuntimeException('Cannot unserialize ' . __CLASS__);
     }
 }
