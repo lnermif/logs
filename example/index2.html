@@ -460,7 +460,10 @@
     <div class="filter-group" style="flex-shrink:0;">
       <label>&nbsp;</label>
       <div style="display:flex;gap:5px;">
-        <button class="filter-btn" @click="applyFilter">Filter</button>
+        <button class="filter-btn" @click="applyFilter" :style="filterApplied ? {} : {opacity:0.6}">
+          <template v-if="filterApplied">Filtered</template>
+          <template v-else>Auto</template>
+        </button>
         <button class="filter-btn-outline" @click="sortOrder = sortOrder === 'desc' ? 'asc' : 'desc'" style="padding:6px 8px;font-size:14px;">
           {{ sortOrder === 'desc' ? '↓' : '↑' }}
         </button>
@@ -521,10 +524,12 @@
           </div>
         </div>
         <div v-if="hasContext(entry)" class="detail-section">
-          <div class="detail-header">
-            <span>Context</span>
-            <button class="copy-btn" @click.stop="copyText(entry, 'context')">Copy</button>
-          </div>
+            <div class="detail-header">
+              <span>Context</span>
+              <button class="copy-btn" @click.stop="copyText(entry, 'context')">
+                {{ copiedKey === entry._key + '-context' ? 'Copied!' : 'Copy' }}
+              </button>
+            </div>
           <div class="detail-json">{{ formatContext(entry) }}</div>
         </div>
       </div>
@@ -553,6 +558,8 @@ createApp({
     const exTraceOpen = reactive({});
     const sortOrder = ref('desc');
     const feedback = ref('');
+    const fileCount = ref(0);
+    const copiedKey = ref('');
 
     const activeLevels = reactive(new Set(LEVEL_ORDER));
     const filterFeat = ref('');
@@ -560,6 +567,13 @@ createApp({
     const filterSearch = ref('');
 
     const allLevels = computed(() => LEVEL_ORDER);
+
+    const filterApplied = computed(() => {
+      return activeLevels.size < LEVEL_ORDER.length
+        || filterFeat.value !== ''
+        || filterTraceId.value !== ''
+        || filterSearch.value.trim() !== '';
+    });
 
     const uniqueFeats = computed(() => {
       const s = new Set(); allEntries.value.forEach(e => { if (e.feat) s.add(e.feat); });
@@ -589,7 +603,7 @@ createApp({
       const distribution = LEVEL_ORDER.map(lvl => ({
         level: lvl, count: cm[lvl] || 0, pct: total > 0 ? ((cm[lvl] || 0) / total) * 100 : 0, color: LEVEL_COLORS[lvl]
       }));
-      return { total, uniqueTraceIds: ids.size, featCount: feats.size, firstTime, lastTime, span, distribution, fileCount: 1 };
+      return { total, uniqueTraceIds: ids.size, featCount: feats.size, firstTime, lastTime, span, distribution, fileCount: fileCount.value };
     });
 
     const filteredEntries = computed(() => {
@@ -631,6 +645,7 @@ createApp({
 
     const processFiles = (files) => {
       if (!files || !files.length) return;
+      fileCount.value = files.length;
       allEntries.value = [];
       expandedSet.clear();
       Object.keys(exTraceOpen).forEach(k => delete exTraceOpen[k]);
@@ -678,6 +693,7 @@ createApp({
       activeLevels.clear(); LEVEL_ORDER.forEach(l => activeLevels.add(l));
       filterFeat.value = ''; filterTraceId.value = ''; filterSearch.value = '';
       sortOrder.value = 'desc'; feedback.value = '';
+      fileCount.value = 0; copiedKey.value = '';
     };
     const toggleExpand = (key) => {
       if (expandedSet.has(key)) expandedSet.delete(key); else expandedSet.add(key);
@@ -708,11 +724,16 @@ createApp({
     const copyText = async (entry, type) => {
       let text = '';
       if (type === 'context') text = formatContext(entry);
-      try { await navigator.clipboard.writeText(text); } catch (e) {}
+      try {
+        await navigator.clipboard.writeText(text);
+        copiedKey.value = entry._key + '-' + type;
+        setTimeout(() => { if (copiedKey.value === entry._key + '-' + type) copiedKey.value = ''; }, 1200);
+      } catch (e) {}
     };
 
     return {
       allEntries, isDragover, fileInput, expandedSet, exTraceOpen, sortOrder, feedback,
+      fileCount, copiedKey, filterApplied,
       activeLevels, filterFeat, filterTraceId, filterSearch,
       allLevels, uniqueFeats, uniqueTraceIds, stats,
       filteredEntries, sortedEntries,
