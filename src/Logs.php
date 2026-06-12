@@ -83,11 +83,8 @@ class Logs
     private const MAX_TRACE_LEN = 524288;
     private const MAX_FILE_SIZE = 100 * 1024 * 1024; // 100MB
 
-    /** @var int GC 过期阈值（秒），长协程可调大，0 表示永不过期 */
+    /** @var int GC 上下文过期时间（秒），长协程可调大，0 表示永不过期 */
     private static $gcTtl = 300;
-
-    /** @var int 上次日志轮转失败的时间戳，用于冷却 */
-    private static $lastRotationFailTime = 0;
 
     /** @var string[] 需要脱敏的上下文键名（小写） */
     private static $sensitiveKeys = [
@@ -306,7 +303,8 @@ class Logs
         if ($feat === null) {
             $ctx['feat'] = null;
         } else {
-            $ctx['feat'] = preg_replace('/[^a-zA-Z0-9_\-\.]/', '_', $feat);
+            // 只过滤控制字符与路径分隔符，不限制非 ASCII 可打印字符（如中文、日文等）
+            $ctx['feat'] = preg_replace('/[\x00-\x1F\x7F\/\\\]/', '_', $feat);
         }
     }
 
@@ -545,13 +543,9 @@ class Logs
         $file = $dir . DIRECTORY_SEPARATOR . $day . '.log';
 
         if (is_file($file) && filesize($file) > self::MAX_FILE_SIZE) {
-            if (self::$lastRotationFailTime > 0 && time() - self::$lastRotationFailTime < 600) {
-                return $file;
-            }
-
             $lockFile = $file . '.rotatelock';
             $lockHandle = @fopen($lockFile, 'c+');
-            $locked = $lockHandle !== false && flock($lockHandle, LOCK_EX | LOCK_NB);
+            $locked = $lockHandle !== false && @flock($lockHandle, LOCK_EX);
 
             if ($locked) {
                 try {
@@ -580,9 +574,7 @@ class Logs
 
                     if (!@rename($file, $rollFile)) {
                         error_log("Log rotation failed: {$file}");
-                        self::$lastRotationFailTime = time();
                     } else {
-                        self::$lastRotationFailTime = 0;
                         // 轮转成功后 touch 新主文件，保证日志文件始终存在
                         @touch($file);
                     }
@@ -597,7 +589,6 @@ class Logs
                 }
             } else {
                 error_log("Log rotation lock failed: {$file}");
-                self::$lastRotationFailTime = time();
             }
         }
 
@@ -903,7 +894,7 @@ class Logs
 
     private static function extractExceptionExtra(\Throwable $exception): array
     {
-        $standardKeys = ['message', 'code', 'file', 'line', 'xdebug_message'];
+        $standardKeys = ['message', 'code', 'file', 'line', 'trace', 'previous', 'xdebug_message', 'string'];
         $custom = [];
         try {
             $reflect = new \ReflectionClass($exception);
