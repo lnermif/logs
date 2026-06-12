@@ -37,6 +37,7 @@
     --lvl-alert: #991b1b;
     --lvl-emergency: #7f1d1d;
   }
+  [v-cloak] { display: none; }
   html, body { height: 100%; background: var(--bg-page); color: var(--text-primary); font-family: 'Outfit', sans-serif; }
   ::-webkit-scrollbar { width: 5px; }
   ::-webkit-scrollbar-track { background: transparent; }
@@ -72,6 +73,7 @@
   }
   .header-right { margin-left: auto; display: flex; align-items: center; gap: 10px; }
   .live-label { font-size: 11px; color: var(--text-muted); font-weight: 500; }
+  .feedback { font-size: 11px; color: var(--primary); font-weight: 500; animation: fadeSlideIn 0.2s ease; }
 
   /* ─── Stats Row ─── */
   .stats-row {
@@ -327,7 +329,7 @@
 </style>
 </head>
 <body>
-<div id="app">
+<div id="app" v-cloak>
   <!-- Header -->
   <header class="header">
     <div class="header-brand">
@@ -336,7 +338,8 @@
       <span class="header-badge">JSON Lines</span>
     </div>
     <div class="header-right">
-      <span class="live-label">Upload a log file to start</span>
+      <span v-if="feedback" class="feedback">{{ feedback }}</span>
+      <span v-else class="live-label">Upload a log file to start</span>
     </div>
   </header>
 
@@ -434,59 +437,63 @@
   </div>
 
   <!-- Feed -->
-  <div class="feed-container" ref="feedContainer">
-    <div class="feed-empty" v-if="filteredEntries.length === 0">
+  <div class="feed-container" ref="feedContainer" v-cloak>
+    <div v-if="allEntries.length === 0" class="feed-empty">
       <div class="feed-empty-icon">◈</div>
-      <p v-if="allEntries.length === 0">
+      <p>
         Upload a JSON Lines log file to begin analysis.<br>
         <span style="font-size:11px;color:var(--text-muted);">Format: {"datetime":"…","trace_id":"…","feat":"…","level":"…","message":"…","context":{…}}</span>
       </p>
-      <p v-else>No entries match the current filters.</p>
+    </div>
+    <div v-else-if="sortedEntries.length === 0" class="feed-empty">
+      <div class="feed-empty-icon">◈</div>
+      <p>
+        <template v-if="activeLevels.size === 0">All levels are disabled — click level tags above to enable.</template>
+        <template v-else>No entries match the current filters.</template>
+      </p>
     </div>
 
-    <template>
-      <div v-for="(entry, idx) in sortedEntries" :key="entry._key"
-           class="log-entry"
-           :class="[`level-${entry.level}`, {expanded: expandedSet.has(entry._key)}]"
-           @click="toggleExpand(entry._key)">
-        <div class="log-main">
-          <span class="log-time">
-            {{ formatTime(entry.datetime) }}<span class="usec">{{ formatUsec(entry.datetime) }}</span>
-          </span>
-          <span class="log-badge" :class="'badge-' + entry.level">{{ entry.level }}</span>
-          <span class="log-message">{{ entry.message }}</span>
-          <span class="log-feat" v-if="entry.feat">{{ entry.feat }}</span>
+    <div v-for="(entry, idx) in sortedEntries" :key="entry._key"
+         class="log-entry"
+         :class="[`level-${entry.level}`, {expanded: expandedSet.has(entry._key)}]"
+         @click="toggleExpand(entry._key)">
+      <div class="log-main">
+        <span class="log-time">
+          {{ formatTime(entry.datetime) }}<span class="usec">{{ formatUsec(entry.datetime) }}</span>
+        </span>
+        <span class="log-badge" :class="'badge-' + entry.level">{{ entry.level }}</span>
+        <span class="log-message">{{ entry.message }}</span>
+        <span class="log-feat" v-if="entry.feat">{{ entry.feat }}</span>
+      </div>
+      <span class="log-expand-icon" :class="{open: expandedSet.has(entry._key)}">▾</span>
+      <div class="log-detail">
+        <div v-if="entry.trace_id" class="detail-section">
+          <div class="detail-header"><span>Trace ID</span></div>
+          <div class="detail-json" style="padding:6px 10px;font-size:11px;color:var(--text-secondary);">{{ entry.trace_id }}</div>
         </div>
-        <span class="log-expand-icon" :class="{open: expandedSet.has(entry._key)}">▾</span>
-        <div class="log-detail">
-          <div v-if="entry.trace_id" class="detail-section">
-            <div class="detail-header"><span>Trace ID</span></div>
-            <div class="detail-json" style="padding:6px 10px;font-size:11px;color:var(--text-secondary);">{{ entry.trace_id }}</div>
-          </div>
-          <div v-if="hasException(entry)" class="detail-section">
-            <div class="detail-header"><span>Exception</span></div>
-            <div class="exception-card">
-              <div class="ex-class">{{ getException(entry).class }}<span class="ex-code" v-if="getException(entry).code !== null">code {{ getException(entry).code }}</span></div>
-              <div class="ex-message">{{ getException(entry).message }}</div>
-              <div class="ex-location" v-if="getException(entry).file">{{ getException(entry).file }}:{{ getException(entry).line }}</div>
-              <button class="ex-toggle" @click.stop="toggleExTrace(entry._key)">
-                {{ exTraceOpen[entry._key] ? '▾' : '▸' }} Stack Trace
-              </button>
-              <div class="ex-trace-block" :class="{open: exTraceOpen[entry._key]}">
-                <pre class="ex-trace-line">{{ getException(entry).trace }}</pre>
-              </div>
+        <div v-if="hasException(entry)" class="detail-section">
+          <div class="detail-header"><span>Exception</span></div>
+          <div class="exception-card">
+            <div class="ex-class">{{ getException(entry).class }}<span class="ex-code" v-if="getException(entry).code !== null">code {{ getException(entry).code }}</span></div>
+            <div class="ex-message">{{ getException(entry).message }}</div>
+            <div class="ex-location" v-if="getException(entry).file">{{ getException(entry).file }}:{{ getException(entry).line }}</div>
+            <button class="ex-toggle" @click.stop="toggleExTrace(entry._key)">
+              {{ exTraceOpen[entry._key] ? '▾' : '▸' }} Stack Trace
+            </button>
+            <div class="ex-trace-block" :class="{open: exTraceOpen[entry._key]}">
+              <pre class="ex-trace-line">{{ getException(entry).trace }}</pre>
             </div>
           </div>
-          <div v-if="hasContext(entry)" class="detail-section">
-            <div class="detail-header">
-              <span>Context</span>
-              <button class="copy-btn" @click.stop="copyText(entry, 'context')">Copy</button>
-            </div>
-            <div class="detail-json">{{ formatContext(entry) }}</div>
+        </div>
+        <div v-if="hasContext(entry)" class="detail-section">
+          <div class="detail-header">
+            <span>Context</span>
+            <button class="copy-btn" @click.stop="copyText(entry, 'context')">Copy</button>
           </div>
+          <div class="detail-json">{{ formatContext(entry) }}</div>
         </div>
       </div>
-    </template>
+    </div>
   </div>
 </div>
 
@@ -510,6 +517,7 @@ createApp({
     const expandedSet = reactive(new Set());
     const exTraceOpen = reactive({});
     const sortOrder = ref('desc');
+    const feedback = ref('');
 
     const activeLevels = reactive(new Set(LEVEL_ORDER));
     const filterFeat = ref('');
@@ -611,7 +619,13 @@ createApp({
           const entry = parseLogLine(t); if (entry) parsed.push(entry);
         });
         allEntries.value = parsed;
-      }).catch(err => { console.error(err); });
+        if (parsed.length === 0) {
+          feedback.value = 'No valid JSON Lines entries found in the file.';
+        } else {
+          feedback.value = parsed.length + ' entries loaded.';
+          setTimeout(() => { feedback.value = ''; }, 3000);
+        }
+      }).catch(err => { feedback.value = 'File read error: ' + err.message; });
     };
 
     const triggerUpload = () => fileInput.value.click();
@@ -628,7 +642,7 @@ createApp({
       Object.keys(exTraceOpen).forEach(k => delete exTraceOpen[k]);
       activeLevels.clear(); LEVEL_ORDER.forEach(l => activeLevels.add(l));
       filterFeat.value = ''; filterTraceId.value = ''; filterSearch.value = '';
-      sortOrder.value = 'desc';
+      sortOrder.value = 'desc'; feedback.value = '';
     };
     const toggleExpand = (key) => {
       if (expandedSet.has(key)) expandedSet.delete(key); else expandedSet.add(key);
@@ -663,7 +677,7 @@ createApp({
     };
 
     return {
-      allEntries, isDragover, fileInput, expandedSet, exTraceOpen, sortOrder,
+      allEntries, isDragover, fileInput, expandedSet, exTraceOpen, sortOrder, feedback,
       activeLevels, filterFeat, filterTraceId, filterSearch,
       allLevels, uniqueFeats, uniqueTraceIds, stats,
       filteredEntries, sortedEntries,
