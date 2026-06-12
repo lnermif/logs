@@ -272,8 +272,8 @@
                    style="display:none" @change="handleFileSelect" />
 
             <div class="filter-item" style="flex:0 0 180px;">
-                <label>🆔 Trace ID</label>
-                <el-select v-model="filter.traceId" clearable placeholder="全部"
+                <label>🆔 Request ID</label>
+                <el-select v-model="filter.requestId" clearable placeholder="全部"
                            size="small" filterable allow-create>
                     <el-option v-for="id in uniqueIds" :key="id" :label="id.substring(0,36)+(id.length>36?'…':'')" :value="id" />
                 </el-select>
@@ -372,7 +372,7 @@
         setup() {
             const allEntries = ref([]);
             const filter = reactive({
-                traceId: '',
+                requestId: '',
                 startTime: '',
                 endTime: '',
                 searchText: ''
@@ -385,19 +385,22 @@
 
             const uniqueIds = computed(() => {
                 const ids = new Set();
-                allEntries.value.forEach(e => { if (e.trace_id) ids.add(e.trace_id); });
+                allEntries.value.forEach(e => { if (e.request_id) ids.add(e.request_id); });
                 return [...ids].sort();
             });
 
             const filteredEntries = computed(() => {
                 let list = allEntries.value;
-                if (filter.traceId) list = list.filter(e => e.trace_id === filter.traceId);
+                if (filter.requestId) list = list.filter(e => e.request_id === filter.requestId);
                 if (filter.startTime) list = list.filter(e => e.datetime >= filter.startTime);
                 if (filter.endTime) list = list.filter(e => e.datetime <= filter.endTime);
                 const searchKw = filter.searchText.trim();
                 if (searchKw) {
                     const kw = searchKw.toLowerCase();
-                    list = list.filter(e => (e._search || '').includes(kw));
+                    list = list.filter(e =>
+                        (e.message || '').toLowerCase().includes(kw) ||
+                        JSON.stringify(e.context || {}).toLowerCase().includes(kw)
+                    );
                 }
                 return list;
             });
@@ -410,7 +413,7 @@
 
             const activeFilterDesc = computed(() => {
                 const parts = [];
-                if (filter.traceId) parts.push('ID: ' + filter.traceId.substring(0, 12) + '…');
+                if (filter.requestId) parts.push('ID: ' + filter.requestId.substring(0, 12) + '…');
                 if (filter.startTime) parts.push('≥' + filter.startTime);
                 if (filter.endTime) parts.push('≤' + filter.endTime);
                 if (filter.searchText) parts.push('“' + filter.searchText + '”');
@@ -446,21 +449,12 @@
                     try {
                         const obj = JSON.parse(line);
                         if (obj && typeof obj === 'object') {
-                            const message = obj.message || '';
-                            const context = obj.context || {};
-                            let contextText = '';
-                            try {
-                                contextText = JSON.stringify(context);
-                            } catch (e) {
-                                contextText = '';
-                            }
                             entries.push({
                                 datetime: obj.datetime || '',
-                                trace_id: obj.trace_id || null,
+                                request_id: obj.request_id || null,
                                 level: obj.level || 'UNKNOWN',
-                                message: message,
-                                context: context,
-                                _search: ((message || '') + ' ' + contextText).toLowerCase()
+                                message: obj.message || '',
+                                context: obj.context || {},
                             });
                         }
                     } catch (e) {}
@@ -500,7 +494,7 @@
 
             const applyFilter = () => {};
             const clearFilter = () => {
-                filter.traceId = '';
+                filter.requestId = '';
                 filter.startTime = '';
                 filter.endTime = '';
                 filter.searchText = '';
