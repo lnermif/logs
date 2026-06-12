@@ -3,143 +3,148 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Log Observatory · 日志观测站</title>
+<title>Log Observatory · 日志分析</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Syne:wght@500;700;800&family=JetBrains+Mono:wght@400;500;600;700&family=Inter+Tight:wght@400;500;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
   *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
   :root {
-    --bg-deep: #070b17;
-    --bg-surface: #0d1325;
-    --bg-elevated: #131c35;
-    --bg-hover: #1a2548;
-    --border: rgba(110, 231, 255, 0.08);
-    --border-active: rgba(110, 231, 255, 0.3);
-    --cyan: #6ee7ff;
-    --cyan-dim: rgba(110, 231, 255, 0.15);
-    --purple: #a78bfa;
-    --purple-dim: rgba(167, 139, 250, 0.12);
-    --coral: #fb7185;
-    --amber: #fbbf24;
-    --emerald: #34d399;
-    --gray: #6b7280;
-    --text-primary: #e8ecf4;
-    --text-secondary: #8b92a8;
-    --text-muted: #4b5368;
-    --level-debug: var(--gray);
-    --level-info: #60a5fa;
-    --level-notice: var(--emerald);
-    --level-warning: var(--amber);
-    --level-error: var(--coral);
-    --level-critical: #f43f5e;
-    --level-alert: #e11d48;
-    --level-emergency: #be123c;
+    --bg-page: #f0f2f5;
+    --bg-surface: #ffffff;
+    --bg-elevated: #f8f9fb;
+    --bg-hover: #f1f4f9;
+    --bg-input: #ffffff;
+    --border: #dde1e8;
+    --border-light: #e8ecf2;
+    --border-focus: #2563eb;
+    --primary: #2563eb;
+    --primary-dim: rgba(37,99,235,0.08);
+    --purple: #7c3aed;
+    --purple-dim: rgba(124,58,237,0.08);
+    --text-primary: #0f172a;
+    --text-secondary: #475569;
+    --text-muted: #94a3b8;
+    --shadow-sm: 0 1px 2px rgba(0,0,0,0.04);
+    --shadow-md: 0 1px 4px rgba(0,0,0,0.06);
     --radius: 10px;
     --radius-sm: 6px;
+    --lvl-debug: #6b7280;
+    --lvl-info: #2563eb;
+    --lvl-notice: #059669;
+    --lvl-warning: #d97706;
+    --lvl-error: #dc2626;
+    --lvl-critical: #b91c1c;
+    --lvl-alert: #991b1b;
+    --lvl-emergency: #7f1d1d;
   }
-  html, body { height: 100%; background: var(--bg-deep); color: var(--text-primary); font-family: 'Inter Tight', sans-serif; }
+  html, body { height: 100%; background: var(--bg-page); color: var(--text-primary); font-family: 'Outfit', sans-serif; }
   ::-webkit-scrollbar { width: 5px; }
   ::-webkit-scrollbar-track { background: transparent; }
   ::-webkit-scrollbar-thumb { background: var(--text-muted); border-radius: 3px; }
 
   #app {
     height: 100%; display: flex; flex-direction: column;
-    max-width: 1440px; margin: 0 auto; padding: 20px 24px; gap: 16px;
+    max-width: 1440px; margin: 0 auto; padding: 20px 24px; gap: 12px;
   }
+
   /* ─── Header ─── */
   .header {
-    display: flex; align-items: center; gap: 16px; flex-shrink: 0;
-    padding-bottom: 12px; border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; gap: 14px; flex-shrink: 0;
+    padding-bottom: 12px; border-bottom: 1px solid var(--border-light);
   }
-  .header-brand { display: flex; align-items: center; gap: 14px; }
+  .header-brand { display: flex; align-items: center; gap: 12px; }
   .header-logo {
-    width: 36px; height: 36px; border-radius: 8px;
-    background: linear-gradient(135deg, var(--cyan), var(--purple));
+    width: 34px; height: 34px; border-radius: 8px;
+    background: linear-gradient(135deg, var(--primary), #1d4ed8);
     display: flex; align-items: center; justify-content: center;
-    font-size: 18px; font-weight: 800; color: var(--bg-deep);
-    font-family: 'Syne', sans-serif;
+    font-size: 16px; font-weight: 800; color: #fff;
+    font-family: 'Outfit', sans-serif;
   }
   .header h1 {
-    font-family: 'Syne', sans-serif; font-weight: 700; font-size: 22px;
-    letter-spacing: -0.5px; color: var(--text-primary);
+    font-family: 'Outfit', sans-serif; font-weight: 700; font-size: 22px;
+    letter-spacing: -0.3px; color: var(--text-primary);
   }
-  .header h1 span { color: var(--cyan); }
+  .header h1 span { color: var(--primary); }
   .header-badge {
-    font-size: 10px; font-weight: 600; letter-spacing: 0.4px;
-    padding: 3px 10px; border-radius: 20px;
-    background: var(--cyan-dim); color: var(--cyan); border: 1px solid rgba(110,231,255,0.15);
-    text-transform: uppercase;
+    font-size: 10px; font-weight: 500; padding: 3px 10px; border-radius: 20px;
+    background: var(--primary-dim); color: var(--primary);
+    border: 1px solid rgba(37,99,235,0.12);
   }
-  .header-right { margin-left: auto; display: flex; align-items: center; gap: 12px; }
-  .live-dot {
-    display: inline-block; width: 7px; height: 7px; border-radius: 50%;
-    background: var(--emerald); animation: pulse-dot 2s ease-in-out infinite;
-  }
-  @keyframes pulse-dot { 0%, 100% { opacity: 1; box-shadow: 0 0 6px var(--emerald); } 50% { opacity: 0.3; box-shadow: 0 0 0 var(--emerald); } }
-  .live-label { font-size: 11px; color: var(--text-secondary); font-weight: 500; letter-spacing: 0.3px; text-transform: uppercase; }
+  .header-right { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+  .live-label { font-size: 11px; color: var(--text-muted); font-weight: 500; }
 
   /* ─── Stats Row ─── */
   .stats-row {
-    display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    display: grid; grid-template-columns: 140px 1fr 160px 1fr;
     gap: 10px; flex-shrink: 0;
   }
   .stat-card {
-    background: var(--bg-surface); border: 1px solid var(--border);
+    background: var(--bg-surface); border: 1px solid var(--border-light);
     border-radius: var(--radius); padding: 14px 16px;
     display: flex; flex-direction: column; gap: 4px;
-    transition: border-color 0.2s;
+    box-shadow: var(--shadow-sm);
   }
-  .stat-card:hover { border-color: var(--border-active); }
-  .stat-label { font-size: 10px; font-weight: 600; color: var(--text-muted); letter-spacing: 0.5px; text-transform: uppercase; }
-  .stat-value { font-size: 26px; font-weight: 700; font-family: 'Syne', sans-serif; line-height: 1.1; }
+  .stat-label { font-size: 10px; font-weight: 600; color: var(--text-muted); letter-spacing: 0.4px; text-transform: uppercase; }
+  .stat-value { font-size: 24px; font-weight: 700; font-family: 'Outfit', sans-serif; line-height: 1.1; color: var(--text-primary); }
   .stat-sub { font-size: 11px; color: var(--text-secondary); margin-top: 2px; }
+  .stat-dist {
+    display: flex; gap: 6px; font-size: 11px; font-family: 'JetBrains Mono', monospace;
+    flex-wrap: wrap; margin-top: 2px;
+  }
+  .dist-bar {
+    display: flex; height: 4px; border-radius: 2px; overflow: hidden;
+    background: var(--bg-elevated); margin-top: 6px;
+  }
+  .dist-seg { transition: width 0.4s ease; }
 
   /* ─── Filter Bar ─── */
   .filter-bar {
-    display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px;
-    background: var(--bg-surface); border: 1px solid var(--border);
-    border-radius: var(--radius); padding: 12px 16px; flex-shrink: 0;
+    display: flex; flex-wrap: wrap; align-items: flex-end; gap: 8px;
+    background: var(--bg-surface); border: 1px solid var(--border-light);
+    border-radius: var(--radius); padding: 10px 14px;
+    box-shadow: var(--shadow-sm); flex-shrink: 0;
   }
   .filter-group { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
   .filter-group label {
     font-size: 9px; font-weight: 600; color: var(--text-muted);
-    letter-spacing: 0.6px; text-transform: uppercase;
+    letter-spacing: 0.5px; text-transform: uppercase;
   }
   .filter-control {
-    background: var(--bg-elevated); border: 1px solid var(--border);
-    border-radius: var(--radius-sm); padding: 6px 10px;
-    color: var(--text-primary); font-family: 'Inter Tight', sans-serif;
+    background: var(--bg-input); border: 1px solid var(--border);
+    border-radius: var(--radius-sm); padding: 5px 10px;
+    color: var(--text-primary); font-family: 'Outfit', sans-serif;
     font-size: 12px; outline: none; transition: border-color 0.2s;
     min-height: 30px; min-width: 120px;
   }
-  .filter-control:focus { border-color: var(--cyan); }
+  .filter-control:focus { border-color: var(--border-focus); box-shadow: 0 0 0 2px rgba(37,99,235,0.08); }
   .filter-control::placeholder { color: var(--text-muted); }
-  select.filter-control { appearance: none; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath fill='%236b7280' d='M1 1l4 4 4-4'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 10px center; padding-right: 28px; cursor: pointer; }
+  select.filter-control {
+    appearance: none; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath fill='%2394a3b8' d='M1 1l4 4 4-4'/%3E%3C/svg%3E");
+    background-repeat: no-repeat; background-position: right 10px center; padding-right: 28px; cursor: pointer;
+  }
   .filter-control-multi {
-    display: flex; flex-wrap: wrap; gap: 4px; align-items: center;
-    background: var(--bg-elevated); border: 1px solid var(--border);
-    border-radius: var(--radius-sm); padding: 5px 8px; min-height: 30px; min-width: 160px; cursor: pointer;
+    display: flex; flex-wrap: wrap; gap: 3px; align-items: center;
+    background: var(--bg-input); border: 1px solid var(--border);
+    border-radius: var(--radius-sm); padding: 4px 8px; min-height: 30px; min-width: 170px; cursor: pointer;
   }
   .level-tag {
-    font-size: 9px; font-weight: 700; padding: 1px 6px; border-radius: 3px;
-    letter-spacing: 0.3px; cursor: pointer; transition: opacity 0.15s;
-    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px; font-weight: 600; padding: 2px 6px; border-radius: 3px;
+    cursor: pointer; transition: opacity 0.15s; font-family: 'JetBrains Mono', monospace;
   }
   .level-tag:hover { opacity: 0.7; }
   .level-tag.active { opacity: 1; }
   .level-tag.inactive { opacity: 0.25; }
   .filter-btn {
-    background: linear-gradient(135deg, var(--cyan), #38bdf8);
-    border: none; color: var(--bg-deep); font-family: 'Inter Tight', sans-serif;
-    font-weight: 600; font-size: 12px; padding: 6px 16px; border-radius: var(--radius-sm);
-    cursor: pointer; transition: transform 0.15s, box-shadow 0.15s;
-    height: 30px; display: flex; align-items: center; gap: 5px;
+    background: var(--primary); border: none; color: #fff;
+    font-family: 'Outfit', sans-serif; font-weight: 500; font-size: 12px;
+    padding: 6px 14px; border-radius: var(--radius-sm); cursor: pointer;
+    transition: background 0.15s; height: 30px;
   }
-  .filter-btn:hover { transform: translateY(-1px); box-shadow: 0 4px 14px rgba(110,231,255,0.3); }
+  .filter-btn:hover { background: #1d4ed8; }
   .filter-btn-outline {
     background: transparent; border: 1px solid var(--border); color: var(--text-secondary);
-    font-family: 'Inter Tight', sans-serif; font-weight: 500; font-size: 12px;
-    padding: 6px 14px; border-radius: var(--radius-sm); cursor: pointer;
+    font-family: 'Outfit', sans-serif; font-weight: 500; font-size: 12px;
+    padding: 6px 12px; border-radius: var(--radius-sm); cursor: pointer;
     transition: all 0.15s; height: 30px;
   }
   .filter-btn-outline:hover { border-color: var(--text-muted); color: var(--text-primary); }
@@ -147,80 +152,78 @@
 
   /* ─── Upload Area ─── */
   .upload-zone {
-    position: relative;
     border: 1.5px dashed var(--border); border-radius: var(--radius-sm);
     padding: 6px 14px; cursor: pointer; transition: all 0.2s;
-    display: flex; align-items: center; gap: 8px;
-    font-size: 12px; color: var(--text-secondary); height: 30px;
-    white-space: nowrap;
+    display: flex; align-items: center; gap: 6px;
+    font-size: 12px; color: var(--text-muted); height: 30px; white-space: nowrap;
   }
   .upload-zone:hover, .upload-zone.dragover {
-    border-color: var(--cyan); background: var(--cyan-dim); color: var(--cyan);
+    border-color: var(--primary); color: var(--primary); background: var(--primary-dim);
   }
 
   /* ─── Log Feed ─── */
   .feed-container {
     flex: 1; min-height: 0; overflow-y: auto;
-    background: var(--bg-surface); border: 1px solid var(--border);
-    border-radius: var(--radius); position: relative;
+    background: var(--bg-surface); border: 1px solid var(--border-light);
+    border-radius: var(--radius); box-shadow: var(--shadow-sm); position: relative;
   }
   .feed-empty {
     position: absolute; inset: 0; display: flex; flex-direction: column;
-    align-items: center; justify-content: center; gap: 12px;
+    align-items: center; justify-content: center; gap: 10px;
     color: var(--text-muted); text-align: center; padding: 40px;
   }
-  .feed-empty-icon { font-size: 40px; opacity: 0.4; font-family: 'Syne', sans-serif; font-weight: 800; }
-  .feed-empty p { font-size: 13px; max-width: 320px; line-height: 1.6; }
+  .feed-empty-icon { font-size: 36px; opacity: 0.35; font-weight: 700; }
+  .feed-empty p { font-size: 13px; max-width: 360px; line-height: 1.6; }
 
   .log-entry {
     display: grid;
     grid-template-columns: 1fr auto;
     grid-template-rows: auto auto;
-    gap: 0 12px;
-    padding: 10px 16px;
+    gap: 0 10px;
+    padding: 9px 16px;
     border-left: 3px solid transparent;
-    border-bottom: 1px solid rgba(255,255,255,0.03);
+    border-bottom: 1px solid var(--border-light);
     cursor: pointer;
-    transition: background 0.12s;
-    position: relative;
+    transition: background 0.1s;
   }
   .log-entry:hover { background: var(--bg-hover); }
-  .log-entry.level-DEBUG    { border-left-color: var(--level-debug); }
-  .log-entry.level-INFO     { border-left-color: var(--level-info); }
-  .log-entry.level-NOTICE   { border-left-color: var(--level-notice); }
-  .log-entry.level-WARNING  { border-left-color: var(--level-warning); background: rgba(251,191,36,0.03); }
-  .log-entry.level-ERROR    { border-left-color: var(--level-error); background: rgba(251,113,133,0.04); }
-  .log-entry.level-CRITICAL { border-left-color: var(--level-critical); background: rgba(244,63,94,0.05); }
-  .log-entry.level-ALERT    { border-left-color: var(--level-alert); background: rgba(225,29,72,0.06); }
-  .log-entry.level-EMERGENCY{ border-left-color: var(--level-emergency); background: rgba(190,18,60,0.07); }
+  .log-entry.level-DEBUG    { border-left-color: var(--lvl-debug); }
+  .log-entry.level-INFO     { border-left-color: var(--lvl-info); }
+  .log-entry.level-NOTICE   { border-left-color: var(--lvl-notice); }
+  .log-entry.level-WARNING  { border-left-color: var(--lvl-warning); background: #fffbeb; }
+  .log-entry.level-ERROR    { border-left-color: var(--lvl-error); background: #fef2f2; }
+  .log-entry.level-CRITICAL { border-left-color: var(--lvl-critical); background: #fee2e2; }
+  .log-entry.level-ALERT    { border-left-color: var(--lvl-alert); background: #fecaca; }
+  .log-entry.level-EMERGENCY{ border-left-color: var(--lvl-emergency); background: #fca5a5; }
 
   .log-main {
     display: flex; align-items: flex-start; gap: 10px; min-width: 0;
   }
   .log-time {
     font-family: 'JetBrains Mono', monospace; font-size: 11px;
-    color: var(--text-muted); white-space: nowrap; padding-top: 2px;
-    flex-shrink: 0;
+    color: var(--text-muted); white-space: nowrap; padding-top: 2px; flex-shrink: 0;
   }
-  .log-time .usec { color: rgba(107,114,128,0.5); }
+  .log-time .usec { color: #cbd5e1; }
+
+  /* ⭐ Fixed-width badge: all level labels align on the same vertical line */
   .log-badge {
     font-family: 'JetBrains Mono', monospace; font-size: 9px; font-weight: 600;
-    padding: 1px 7px; border-radius: 3px; letter-spacing: 0.3px;
-    white-space: nowrap; flex-shrink: 0; margin-top: 2px;
+    padding: 2px 0; border-radius: 3px; letter-spacing: 0.2px;
+    flex-shrink: 0; margin-top: 2px;
+    width: 72px; text-align: center; display: inline-block;
   }
-  .badge-DEBUG     { background: rgba(107,114,128,0.2); color: var(--gray); }
-  .badge-INFO      { background: rgba(96,165,250,0.18); color: var(--level-info); }
-  .badge-NOTICE    { background: rgba(52,211,153,0.18); color: var(--level-notice); }
-  .badge-WARNING   { background: rgba(251,191,36,0.18); color: var(--level-warning); }
-  .badge-ERROR     { background: rgba(251,113,133,0.18); color: var(--level-error); }
-  .badge-CRITICAL  { background: rgba(244,63,94,0.18); color: var(--level-critical); }
-  .badge-ALERT     { background: rgba(225,29,72,0.2); color: var(--level-alert); }
-  .badge-EMERGENCY { background: rgba(190,18,60,0.22); color: var(--level-emergency); }
+  .badge-DEBUG     { background: #e5e7eb; color: #6b7280; }
+  .badge-INFO      { background: #dbeafe; color: #2563eb; }
+  .badge-NOTICE    { background: #d1fae5; color: #059669; }
+  .badge-WARNING   { background: #fef3c7; color: #d97706; }
+  .badge-ERROR     { background: #fee2e2; color: #dc2626; }
+  .badge-CRITICAL  { background: #fecaca; color: #b91c1c; }
+  .badge-ALERT     { background: #fca5a5; color: #991b1b; }
+  .badge-EMERGENCY { background: #fca5a5; color: #7f1d1d; }
 
   .log-message {
     font-size: 13px; font-weight: 500; line-height: 1.4;
-    word-break: break-word; flex: 1; min-width: 0;
-    color: var(--text-primary);
+    word-break: break-word; flex: 1; min-width: 0; color: var(--text-primary);
   }
   .log-feat {
     font-size: 10px; font-family: 'JetBrains Mono', monospace;
@@ -231,7 +234,6 @@
   .log-expand-icon {
     grid-row: 1 / 2; grid-column: 2 / 3; align-self: center;
     color: var(--text-muted); font-size: 10px; transition: transform 0.2s;
-    font-family: 'JetBrains Mono', monospace;
   }
   .log-expand-icon.open { transform: rotate(180deg); }
 
@@ -239,10 +241,9 @@
   .log-detail {
     grid-row: 2 / 3; grid-column: 1 / 3;
     display: none; padding-top: 8px; margin-top: 6px;
-    border-top: 1px solid rgba(255,255,255,0.04);
+    border-top: 1px solid var(--border-light);
   }
   .log-entry.expanded .log-detail { display: block; }
-
   .detail-section { margin-bottom: 10px; }
   .detail-section:last-child { margin-bottom: 0; }
   .detail-header {
@@ -257,76 +258,52 @@
     padding: 1px 5px; cursor: pointer; color: var(--text-muted); font-size: 9px;
     transition: all 0.15s; line-height: 1.4;
   }
-  .detail-header .copy-btn:hover { border-color: var(--cyan); color: var(--cyan); }
-
+  .detail-header .copy-btn:hover { border-color: var(--primary); color: var(--primary); }
   .detail-json {
-    background: var(--bg-deep); border: 1px solid rgba(255,255,255,0.04);
+    background: #f8fafc; border: 1px solid var(--border-light);
     border-radius: var(--radius-sm); padding: 10px 12px;
     font-family: 'JetBrains Mono', monospace; font-size: 10.5px; line-height: 1.5;
     color: var(--text-secondary); white-space: pre-wrap; word-break: break-all;
-    max-height: 220px; overflow-y: auto; position: relative;
+    max-height: 220px; overflow-y: auto;
   }
 
   /* Exception card */
   .exception-card {
-    background: linear-gradient(135deg, rgba(251,113,133,0.08), rgba(190,18,60,0.08));
-    border: 1px solid rgba(251,113,133,0.15);
+    background: #fef2f2; border: 1px solid #fecaca;
     border-radius: var(--radius-sm); padding: 12px;
   }
-  .ex-class { font-family: 'JetBrains Mono', monospace; font-weight: 700; font-size: 13px; color: var(--coral); }
+  .ex-class { font-family: 'JetBrains Mono', monospace; font-weight: 700; font-size: 13px; color: var(--lvl-error); }
   .ex-message { font-size: 12px; color: var(--text-secondary); margin-top: 4px; word-break: break-word; }
   .ex-code { font-size: 10px; color: var(--text-muted); margin-left: 6px; }
   .ex-location { font-size: 10.5px; color: var(--text-muted); margin-top: 4px; font-family: 'JetBrains Mono', monospace; }
   .ex-toggle {
-    background: none; border: none; color: var(--cyan); font-size: 11px;
-    cursor: pointer; padding: 4px 0; font-family: 'Inter Tight', sans-serif;
-    transition: color 0.15s; display: inline-flex; align-items: center; gap: 4px;
+    background: none; border: none; color: var(--primary); font-size: 11px;
+    cursor: pointer; padding: 4px 0; font-family: 'Outfit', sans-serif;
+    display: inline-flex; align-items: center; gap: 4px;
   }
-  .ex-toggle:hover { color: #9bf0ff; }
+  .ex-toggle:hover { color: #1d4ed8; }
   .ex-trace-block {
     display: none; margin-top: 8px;
-    background: #050812; border: 1px solid rgba(110,231,255,0.08);
+    background: #0f172a; border: 1px solid rgba(255,255,255,0.08);
     border-radius: 4px; padding: 10px; max-height: 180px; overflow-y: auto;
   }
   .ex-trace-block.open { display: block; }
   .ex-trace-line {
     font-family: 'JetBrains Mono', monospace; font-size: 9.5px; line-height: 1.7;
-    color: var(--text-muted); white-space: pre-wrap; word-break: break-all;
+    color: #94a3b8; white-space: pre-wrap; word-break: break-all;
   }
-
-  /* Group by feat */
-  .feat-group-header {
-    display: flex; align-items: center; gap: 10px;
-    padding: 10px 16px; background: var(--bg-elevated);
-    border-bottom: 1px solid var(--border); position: sticky; top: 0; z-index: 2;
-  }
-  .feat-group-header .feat-name {
-    font-family: 'JetBrains Mono', monospace; font-weight: 600; font-size: 12px;
-    color: var(--purple); background: var(--purple-dim);
-    padding: 2px 10px; border-radius: 4px;
-  }
-  .feat-group-header .feat-count {
-    font-size: 11px; color: var(--text-muted);
-  }
-
-  /* ─── Distribution bar ─── */
-  .dist-bar {
-    display: flex; height: 4px; border-radius: 2px; overflow: hidden;
-    background: var(--bg-elevated); margin-top: 6px;
-  }
-  .dist-seg { transition: width 0.4s ease; }
 
   /* Responsive */
-  @media (max-width: 800px) {
+  @media (max-width: 860px) {
     #app { padding: 12px; }
-    .stats-row { grid-template-columns: repeat(3, 1fr); }
+    .stats-row { grid-template-columns: 1fr 1fr; }
     .filter-bar { flex-direction: column; align-items: stretch; }
-    .filter-group.flex-1 { flex: 1; }
     .log-time { font-size: 10px; }
     .log-message { font-size: 12px; }
+    .log-badge { width: 62px; font-size: 8px; }
   }
   @media (max-width: 500px) {
-    .stats-row { grid-template-columns: repeat(2, 1fr); }
+    .stats-row { grid-template-columns: 1fr; }
     .header h1 { font-size: 17px; }
   }
 
@@ -354,12 +331,12 @@
   <!-- Header -->
   <header class="header">
     <div class="header-brand">
-      <div class="header-logo">◆</div>
+      <div class="header-logo">◈</div>
       <h1>Log <span>Observatory</span></h1>
-      <span class="header-badge">v2.0 · JSON Lines</span>
+      <span class="header-badge">JSON Lines</span>
     </div>
     <div class="header-right">
-      <span class="live-dot"></span><span class="live-label">Analyzer Ready</span>
+      <span class="live-label">Upload a log file to start</span>
     </div>
   </header>
 
@@ -367,22 +344,24 @@
   <div class="stats-row">
     <div class="stat-card">
       <span class="stat-label">Total Entries</span>
-      <span class="stat-value" style="color:var(--cyan)">{{ stats.total }}</span>
+      <span class="stat-value" style="color:var(--primary)">{{ stats.total }}</span>
       <span class="stat-sub" v-if="stats.total > 0">loaded in memory</span>
+      <span class="stat-sub" v-else>—</span>
     </div>
     <div class="stat-card">
       <span class="stat-label">Time Span</span>
-      <span class="stat-value" style="color:var(--purple);font-size:20px;">{{ stats.span }}</span>
+      <span class="stat-value" style="font-size:20px;">{{ stats.span }}</span>
       <span class="stat-sub" v-if="stats.firstTime && stats.lastTime">{{ stats.firstTime }} ~ {{ stats.lastTime }}</span>
+      <span class="stat-sub" v-else>—</span>
     </div>
     <div class="stat-card">
-      <span class="stat-label">Trace IDs</span>
-      <span class="stat-value" style="color:var(--emerald)">{{ stats.uniqueTraceIds }}</span>
-      <span class="stat-sub">{{ stats.featCount }} feats · {{ stats.fileCount }} file(s)</span>
+      <span class="stat-label">Traces / Feats</span>
+      <span class="stat-value" style="font-size:20px;">{{ stats.uniqueTraceIds }} · {{ stats.featCount }}</span>
+      <span class="stat-sub">{{ stats.fileCount }} file(s)</span>
     </div>
-    <div class="stat-card" style="grid-column:span 1;">
+    <div class="stat-card">
       <span class="stat-label">Level Distribution</span>
-      <div style="display:flex;gap:8px;font-size:11px;font-family:'JetBrains Mono',monospace;flex-wrap:wrap;margin-top:2px;">
+      <div class="stat-dist">
         <span v-for="d in stats.distribution" :key="d.level" :style="{color:d.color}">{{ d.level }}<span style="color:var(--text-muted);margin-left:2px;">{{ d.count }}</span></span>
       </div>
       <div class="dist-bar" v-if="stats.total > 0">
@@ -396,7 +375,6 @@
 
   <!-- Filter Bar -->
   <div class="filter-bar">
-    <!-- Upload -->
     <div class="filter-group">
       <label>Source</label>
       <div class="upload-zone" :class="{dragover: isDragover}"
@@ -404,13 +382,12 @@
            @dragover.prevent="isDragover=true"
            @dragleave.prevent="isDragover=false"
            @drop.prevent="handleDrop">
-        <span>📂</span> Upload .log / .jsonl
+        <span style="font-size:14px;">📂</span> Upload
       </div>
       <input type="file" ref="fileInput" accept=".log,.txt,.json,.jsonl" multiple style="display:none" @change="handleFileSelect">
     </div>
 
-    <!-- Level multi-select (click-to-toggle) -->
-    <div class="filter-group" style="min-width:180px;">
+    <div class="filter-group" style="min-width:190px;">
       <label>Level</label>
       <div class="filter-control-multi" @click="toggleLevelPanel">
         <span v-for="lvl in allLevels" :key="lvl"
@@ -423,7 +400,6 @@
       </div>
     </div>
 
-    <!-- Feat filter -->
     <div class="filter-group" style="min-width:120px;">
       <label>Feat</label>
       <select class="filter-control" v-model="filterFeat">
@@ -432,28 +408,26 @@
       </select>
     </div>
 
-    <!-- Trace ID filter -->
     <div class="filter-group" style="min-width:140px;">
       <label>Trace ID</label>
       <select class="filter-control" v-model="filterTraceId">
         <option value="">All traces</option>
-        <option v-for="t in uniqueTraceIds" :key="t" :value="t">{{ t.substring(0,24) }}…</option>
+        <option v-for="t in uniqueTraceIds" :key="t" :value="t">{{ t.substring(0,22) }}…</option>
       </select>
     </div>
 
-    <!-- Text search -->
     <div class="filter-group flex-1">
       <label>Search</label>
       <input class="filter-control" type="text" v-model="filterSearch" placeholder="message, context keywords…" style="width:100%;">
     </div>
 
-    <!-- Actions -->
     <div class="filter-group" style="flex-shrink:0;">
       <label>&nbsp;</label>
-      <div style="display:flex;gap:6px;">
-        <button class="filter-btn" @click="applyFilter">⟳ Filter</button>
-        <button class="filter-btn" :class="{dimmed: sortOrder==='asc'}" @click="sortOrder='desc'" style="padding:6px 8px;" title="Newest first">↓</button>
-        <button class="filter-btn" :class="{dimmed: sortOrder==='desc'}" @click="sortOrder='asc'" style="padding:6px 8px;" title="Oldest first">↑</button>
+      <div style="display:flex;gap:5px;">
+        <button class="filter-btn" @click="applyFilter">Filter</button>
+        <button class="filter-btn-outline" @click="sortOrder = sortOrder === 'desc' ? 'asc' : 'desc'" style="padding:6px 8px;font-size:14px;">
+          {{ sortOrder === 'desc' ? '↓' : '↑' }}
+        </button>
         <button class="filter-btn-outline" @click="clearAll">Clear</button>
       </div>
     </div>
@@ -461,23 +435,20 @@
 
   <!-- Feed -->
   <div class="feed-container" ref="feedContainer">
-    <!-- Empty state -->
     <div class="feed-empty" v-if="filteredEntries.length === 0">
       <div class="feed-empty-icon">◈</div>
       <p v-if="allEntries.length === 0">
-        Upload a JSON Lines log file to begin.<br>
+        Upload a JSON Lines log file to begin analysis.<br>
         <span style="font-size:11px;color:var(--text-muted);">Format: {"datetime":"…","trace_id":"…","feat":"…","level":"…","message":"…","context":{…}}</span>
       </p>
       <p v-else>No entries match the current filters.</p>
     </div>
 
-    <!-- Grouped by feat or flat -->
-    <template v-if="!groupByFeat">
+    <template>
       <div v-for="(entry, idx) in sortedEntries" :key="entry._key"
            class="log-entry"
            :class="[`level-${entry.level}`, {expanded: expandedSet.has(entry._key)}]"
-           @click="toggleExpand(entry._key)"
-           :style="'animation-delay:' + (idx % 20 * 0.02) + 's'">
+           @click="toggleExpand(entry._key)">
         <div class="log-main">
           <span class="log-time">
             {{ formatTime(entry.datetime) }}<span class="usec">{{ formatUsec(entry.datetime) }}</span>
@@ -487,7 +458,6 @@
           <span class="log-feat" v-if="entry.feat">{{ entry.feat }}</span>
         </div>
         <span class="log-expand-icon" :class="{open: expandedSet.has(entry._key)}">▾</span>
-        <!-- Detail -->
         <div class="log-detail">
           <div v-if="entry.trace_id" class="detail-section">
             <div class="detail-header"><span>Trace ID</span></div>
@@ -520,18 +490,16 @@
   </div>
 </div>
 
-<script src="https://cdn.jsdelivr.net/npm/vue@3.5.38/dist/vue.global.min.js">
-</script>
+<script src="https://cdn.jsdelivr.net/npm/vue@3.5.38/dist/vue.global.min.js"></script>
 <script>
-const { createApp, ref, computed, reactive, nextTick } = Vue;
+const { createApp, ref, computed, reactive } = Vue;
 
 const LEVEL_ORDER = ['DEBUG','INFO','NOTICE','WARNING','ERROR','CRITICAL','ALERT','EMERGENCY'];
 const LEVEL_COLORS = {
-  DEBUG: '#6b7280', INFO: '#60a5fa', NOTICE: '#34d399',
-  WARNING: '#fbbf24', ERROR: '#fb7185', CRITICAL: '#f43f5e',
-  ALERT: '#e11d48', EMERGENCY: '#be123c'
+  DEBUG: '#6b7280', INFO: '#2563eb', NOTICE: '#059669',
+  WARNING: '#d97706', ERROR: '#dc2626', CRITICAL: '#b91c1c',
+  ALERT: '#991b1b', EMERGENCY: '#7f1d1d'
 };
-
 let keyCounter = 0;
 
 createApp({
@@ -542,15 +510,12 @@ createApp({
     const expandedSet = reactive(new Set());
     const exTraceOpen = reactive({});
     const sortOrder = ref('desc');
-    const groupByFeat = ref(false);
 
-    // Filters
     const activeLevels = reactive(new Set(LEVEL_ORDER));
     const filterFeat = ref('');
     const filterTraceId = ref('');
     const filterSearch = ref('');
 
-    // --- Computed ---
     const allLevels = computed(() => LEVEL_ORDER);
 
     const uniqueFeats = computed(() => {
@@ -568,36 +533,27 @@ createApp({
       const ids = new Set(entries.map(e => e.trace_id).filter(Boolean));
       const feats = new Set(entries.map(e => e.feat).filter(Boolean));
       const times = entries.map(e => e.datetime).filter(Boolean).sort();
-      const firstTime = times.length > 0 ? times[0] : null;
-      const lastTime = times.length > 0 ? times[times.length - 1] : null;
+      const firstTime = times[0] || null;
+      const lastTime = times[times.length - 1] || null;
       let span = '—';
       if (firstTime && lastTime && firstTime !== lastTime) {
-        const diff = new Date(lastTime.replace(' ','T') + 'Z') - new Date(firstTime.replace(' ','T') + 'Z');
-        if (diff > 0) span = Math.round(diff / 1000) + 's';
-        if (diff >= 60000) span = Math.floor(diff / 60000) + 'm ' + Math.floor((diff % 60000) / 1000) + 's';
-        if (diff >= 3600000) span = Math.floor(diff / 3600000) + 'h ' + Math.floor((diff % 3600000) / 60000) + 'm';
+        const d = new Date(lastTime.replace(' ','T') + 'Z') - new Date(firstTime.replace(' ','T') + 'Z');
+        if (d >= 3600000) span = Math.floor(d / 3600000) + 'h ' + Math.floor((d % 3600000) / 60000) + 'm';
+        else if (d >= 60000) span = Math.floor(d / 60000) + 'm ' + Math.floor((d % 60000) / 1000) + 's';
+        else if (d > 0) span = d / 1000 + 's';
       }
-      const countMap = {};
-      entries.forEach(e => { countMap[e.level] = (countMap[e.level] || 0) + 1; });
+      const cm = {}; entries.forEach(e => { cm[e.level] = (cm[e.level] || 0) + 1; });
       const distribution = LEVEL_ORDER.map(lvl => ({
-        level: lvl, count: countMap[lvl] || 0, pct: total > 0 ? ((countMap[lvl] || 0) / total) * 100 : 0,
-        color: LEVEL_COLORS[lvl]
+        level: lvl, count: cm[lvl] || 0, pct: total > 0 ? ((cm[lvl] || 0) / total) * 100 : 0, color: LEVEL_COLORS[lvl]
       }));
-      const fileCount = 1;
-      return { total, uniqueTraceIds: ids.size, featCount: feats.size, firstTime, lastTime, span, distribution, fileCount };
+      return { total, uniqueTraceIds: ids.size, featCount: feats.size, firstTime, lastTime, span, distribution, fileCount: 1 };
     });
 
     const filteredEntries = computed(() => {
       let list = allEntries.value;
-      if (activeLevels.size < LEVEL_ORDER.length) {
-        list = list.filter(e => activeLevels.has(e.level));
-      }
-      if (filterFeat.value) {
-        list = list.filter(e => e.feat === filterFeat.value);
-      }
-      if (filterTraceId.value) {
-        list = list.filter(e => e.trace_id === filterTraceId.value);
-      }
+      if (activeLevels.size < LEVEL_ORDER.length) list = list.filter(e => activeLevels.has(e.level));
+      if (filterFeat.value) list = list.filter(e => e.feat === filterFeat.value);
+      if (filterTraceId.value) list = list.filter(e => e.trace_id === filterTraceId.value);
       const kw = filterSearch.value.trim().toLowerCase();
       if (kw) {
         list = list.filter(e =>
@@ -611,11 +567,9 @@ createApp({
     const sortedEntries = computed(() => {
       const list = [...filteredEntries.value];
       list.sort((a, b) => (a.datetime || '').localeCompare(b.datetime || ''));
-      if (sortOrder.value === 'desc') list.reverse();
-      return list;
+      return sortOrder.value === 'desc' ? list.reverse() : list;
     });
 
-    // --- Parsing ---
     const parseLogLine = (line) => {
       try {
         const obj = JSON.parse(line);
@@ -640,7 +594,6 @@ createApp({
       activeLevels.clear(); LEVEL_ORDER.forEach(l => activeLevels.add(l));
       filterFeat.value = ''; filterTraceId.value = ''; filterSearch.value = '';
       sortOrder.value = 'desc';
-
       const readers = [];
       for (const f of files) {
         readers.push(new Promise((resolve, reject) => {
@@ -654,72 +607,44 @@ createApp({
         const combined = results.join('\n');
         const parsed = [];
         combined.split(/\r?\n/).forEach(l => {
-          const t = l.trim();
-          if (!t) return;
-          const entry = parseLogLine(t);
-          if (entry) parsed.push(entry);
+          const t = l.trim(); if (!t) return;
+          const entry = parseLogLine(t); if (entry) parsed.push(entry);
         });
         allEntries.value = parsed;
-      }).catch(err => {
-        console.error('File read error:', err);
-      });
+      }).catch(err => { console.error(err); });
     };
 
     const triggerUpload = () => fileInput.value.click();
-    const handleFileSelect = (e) => {
-      processFiles(e.target.files);
-      e.target.value = '';
-    };
-    const handleDrop = (e) => {
-      isDragover.value = false;
-      processFiles(e.dataTransfer.files);
-    };
+    const handleFileSelect = (e) => { processFiles(e.target.files); e.target.value = ''; };
+    const handleDrop = (e) => { isDragover.value = false; processFiles(e.dataTransfer.files); };
 
-    // --- UI ---
     const toggleLevel = (lvl) => {
-      if (activeLevels.has(lvl)) activeLevels.delete(lvl);
-      else activeLevels.add(lvl);
+      if (activeLevels.has(lvl)) activeLevels.delete(lvl); else activeLevels.add(lvl);
     };
     const toggleLevelPanel = () => {};
-
-    const applyFilter = () => { /* reactivity handles it */ };
-
+    const applyFilter = () => {};
     const clearAll = () => {
-      allEntries.value = [];
-      expandedSet.clear();
+      allEntries.value = []; expandedSet.clear();
       Object.keys(exTraceOpen).forEach(k => delete exTraceOpen[k]);
       activeLevels.clear(); LEVEL_ORDER.forEach(l => activeLevels.add(l));
       filterFeat.value = ''; filterTraceId.value = ''; filterSearch.value = '';
       sortOrder.value = 'desc';
     };
-
     const toggleExpand = (key) => {
-      if (expandedSet.has(key)) expandedSet.delete(key);
-      else expandedSet.add(key);
+      if (expandedSet.has(key)) expandedSet.delete(key); else expandedSet.add(key);
     };
+    const toggleExTrace = (key) => { exTraceOpen[key] = !exTraceOpen[key]; };
 
-    const toggleExTrace = (key) => {
-      exTraceOpen[key] = !exTraceOpen[key];
-    };
-
-    // --- Helpers ---
     const formatTime = (dt) => {
-      if (!dt) return '—';
-      const parts = dt.split('.');
-      return parts[0] || dt;
+      if (!dt) return '—'; const parts = dt.split('.'); return parts[0] || dt;
     };
     const formatUsec = (dt) => {
-      if (!dt) return '';
-      const parts = dt.split('.');
-      return parts[1] ? '.' + parts[1] : '';
+      if (!dt) return ''; const parts = dt.split('.'); return parts[1] ? '.' + parts[1] : '';
     };
-
     const hasException = (entry) => {
       return entry.context && entry.context.exception && typeof entry.context.exception === 'object';
     };
-    const getException = (entry) => {
-      return entry.context.exception;
-    };
+    const getException = (entry) => entry.context.exception;
     const hasContext = (entry) => {
       if (!entry.context) return false;
       const keys = Object.keys(entry.context);
@@ -734,13 +659,11 @@ createApp({
     const copyText = async (entry, type) => {
       let text = '';
       if (type === 'context') text = formatContext(entry);
-      try {
-        await navigator.clipboard.writeText(text);
-      } catch (e) { /* ignore */ }
+      try { await navigator.clipboard.writeText(text); } catch (e) {}
     };
 
     return {
-      allEntries, isDragover, fileInput, expandedSet, exTraceOpen, sortOrder, groupByFeat,
+      allEntries, isDragover, fileInput, expandedSet, exTraceOpen, sortOrder,
       activeLevels, filterFeat, filterTraceId, filterSearch,
       allLevels, uniqueFeats, uniqueTraceIds, stats,
       filteredEntries, sortedEntries,
