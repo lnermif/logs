@@ -10,8 +10,8 @@ use Ramsey\Uuid\Uuid;
  * 静态日志类（协程安全，PHP ≥ 7.2）
  *
  * 用法：
- *   Logs::setBasePath('/path/to/runtime/log2');
- *   Logs::init('来自前端的 X-Trace-Id');                                // null 自动生成 UUID
+ *   Logs::init();                                                     // 使用类默认值，自动生成 UUID trace_id
+ *   Logs::init(['min_level' => 'debug', 'base_path' => '/data/logs']); // 可选：传入配置覆盖默认值
  *   Logs::feat('order');                                              // 设置后，后续日志均会携带 "feat":"order"
  *   Logs::endRequest();                                               // 常驻进程必须调用（Swoole 自动清理）
  *
@@ -211,14 +211,60 @@ class Logs
     }
 
     /**
+     * 从配置数组一次性加载所有选项，未提供的键保持默认值。
+     *
+     * 支持的键：
+     *   base_path                      => string  日志根目录（绝对路径）
+     *   min_level                      => string|int  最低日志级别，如 'debug' / 100
+     *   gc_ttl                         => int     GC 上下文过期时间（秒），0 表示永不过期
+     *   sensitive_keys                 => array   需要脱敏的上下文键名（全小写），空数组关闭脱敏
+     *   sanitize_message               => bool    是否过滤消息中的控制字符
+     *   expand_trace_args              => bool    是否展开异常堆栈中的参数值
+     *   auto_mask_high_entropy_strings => bool    是否对高熵字符串自动脱敏
+     *   sensitive_key_match_mode       => string  敏感键匹配模式：'contains'（默认）或 'exact'
+     */
+    public static function configure(array $config): void
+    {
+        if (!empty($config['base_path']) && is_string($config['base_path'])) {
+            self::setBasePath($config['base_path']);
+        }
+        if (array_key_exists('min_level', $config)) {
+            self::setMinLevel($config['min_level']);
+        }
+        if (isset($config['gc_ttl']) && is_numeric($config['gc_ttl'])) {
+            self::setGcTtl((int)$config['gc_ttl']);
+        }
+        if (isset($config['sensitive_keys']) && is_array($config['sensitive_keys'])) {
+            self::setSensitiveKeys($config['sensitive_keys']);
+        }
+        if (array_key_exists('sanitize_message', $config)) {
+            self::setSanitizeMessage((bool)$config['sanitize_message']);
+        }
+        if (array_key_exists('expand_trace_args', $config)) {
+            self::setExpandTraceArgs((bool)$config['expand_trace_args']);
+        }
+        if (array_key_exists('auto_mask_high_entropy_strings', $config)) {
+            self::setAutoMaskHighEntropyStrings((bool)$config['auto_mask_high_entropy_strings']);
+        }
+        if (isset($config['sensitive_key_match_mode']) && is_string($config['sensitive_key_match_mode'])) {
+            self::setSensitiveKeyMatchMode($config['sensitive_key_match_mode']);
+        }
+    }
+
+    /**
      * 初始化当前协程/请求的日志上下文。
+     *
+     * @param array|null $config 可选配置数组，传入时直接交给 configure() 处理
      *
      * 注意：在 Webman / ThinkPHP 常驻 / Workerman 等长驻进程中，
      * 非协程环境下多次请求会共享同一个 `__main__` 槽位，
      * 因此必须每次都清零 feat / trace_id，禁止基于"已有 trace_id 就跳过"的短路逻辑。
      */
-    public static function init(?string $traceId = null): void
+    public static function init(?array $config = null): void
     {
+        if ($config !== null) {
+            self::configure($config);
+        }
         $ctx = &self::context();
         $isCoroutine = self::isCoroutineContext();
 
@@ -226,14 +272,12 @@ class Logs
         // 但为安全起见仍然强制重置 feat，避免上层业务重复调用产生污染。
         $ctx['feat'] = null;
 
-        if ($traceId === null || $traceId === '') {
-            if (method_exists(Uuid::class, 'uuid7')) {
-                $uuid = Uuid::uuid7();
-            } else {
-                $uuid = Uuid::uuid4();
-            }
-            $traceId = $uuid->toString();
+        if (method_exists(Uuid::class, 'uuid7')) {
+            $uuid = Uuid::uuid7();
+        } else {
+            $uuid = Uuid::uuid4();
         }
+        $traceId = $uuid->toString();
         $ctx['trace_id'] = $traceId;
 
         // 自动清理：优先走各协程/框架的 defer 机制，否则由中间件在请求结束时显式调用 endRequest()。
@@ -352,7 +396,7 @@ class Logs
         $data = [
             'datetime' => self::getMicrotimeDatetime(),
             'trace_id' => $ctx['trace_id'] ?? null,
-            'feat' => $ctx['feat'] ?? null,          // 新增 feat 字段
+            'feat' => $ctx['feat'] ?? null,
             'level' => $levelName,
             'message' => $message,
             'context' => self::normalizeContext($context),
@@ -370,7 +414,7 @@ class Logs
 
         try {
             // 统一写入主日志文件（不再根据 feat 分文件）
-            $file = self::buildLogFilePath(null);
+            $file = self::buildLogFilePath();
             self::writeFile($file, $line);
         } catch (\Throwable $e) {
             error_log('Log write failed: ' . $e->getMessage());
@@ -420,7 +464,7 @@ class Logs
             uasort(self::$contexts, function ($a, $b) {
                 return ($a['created_at'] ?? 0) <=> ($b['created_at'] ?? 0);
             });
-            $keepFrom = (int) (count(self::$contexts) * 0.5);
+            $keepFrom = (int)(count(self::$contexts) * 0.5);
             $keys = array_slice(array_keys(self::$contexts), 0, $keepFrom);
             foreach ($keys as $key) {
                 unset(self::$contexts[$key]);
@@ -478,7 +522,7 @@ class Logs
         return '__main__';
     }
 
-    private static function buildLogFilePath(?string $feat): string
+    private static function buildLogFilePath(): string
     {
         $base = self::$basePath ?: self::getDefaultBasePath();
 
@@ -491,9 +535,6 @@ class Logs
         }
         $ym = date('Ym');
         $day = date('Ymd');
-        // feat 不再影响文件名，统一使用主日志名
-        $ext = '';
-
         $dir = $base . DIRECTORY_SEPARATOR . $ym;
         if (!is_dir($dir)) {
             if (!mkdir($dir, 0755, true) && !is_dir($dir)) {
@@ -501,7 +542,7 @@ class Logs
             }
         }
 
-        $file = $dir . DIRECTORY_SEPARATOR . $day . $ext . '.log';
+        $file = $dir . DIRECTORY_SEPARATOR . $day . '.log';
 
         if (is_file($file) && filesize($file) > self::MAX_FILE_SIZE) {
             if (self::$lastRotationFailTime > 0 && time() - self::$lastRotationFailTime < 600) {
@@ -519,7 +560,7 @@ class Logs
                     $stat = fstat($lockHandle);
                     if ($stat['size'] > 0) {
                         rewind($lockHandle);
-                        $lockTs = (int) fread($lockHandle, $stat['size']);
+                        $lockTs = (int)fread($lockHandle, $stat['size']);
                         if ($lockTs > 0 && time() - $lockTs > $lockTtl) {
                             ftruncate($lockHandle, 0);
                             rewind($lockHandle);
@@ -548,7 +589,7 @@ class Logs
 
                     // 写入心跳时间戳
                     rewind($lockHandle);
-                    fwrite($lockHandle, (string) time());
+                    fwrite($lockHandle, (string)time());
                     fflush($lockHandle);
                 } finally {
                     flock($lockHandle, LOCK_UN);
@@ -599,7 +640,7 @@ class Logs
 
         $result = [];
         foreach ($context as $key => $value) {
-            if (self::isSensitiveKey((string) $key)) {
+            if (self::isSensitiveKey((string)$key)) {
                 $result[$key] = '***';
                 continue;
             }
@@ -629,7 +670,7 @@ class Logs
                         // 非数组返回值包装为结构化形式，保留可读性
                         $result[$key] = [
                             'type' => gettype($serialized),
-                            'value' => self::truncateBytes((string) $serialized, self::MAX_FIELD_LEN),
+                            'value' => self::truncateBytes((string)$serialized, self::MAX_FIELD_LEN),
                         ];
                     }
                 } elseif (method_exists($value, '__toString')) {
@@ -918,9 +959,9 @@ class Logs
     private static function getMicrotimeDatetime(): string
     {
         $mtime = sprintf('%.6f', microtime(true));
-        $sec = (int) $mtime;
-        $usec = (int) substr($mtime, strpos($mtime, '.') + 1);
-        return date('Y-m-d H:i:s', $sec) . '.' . str_pad((string) $usec, 6, '0', STR_PAD_LEFT);
+        $sec = (int)$mtime;
+        $usec = (int)substr($mtime, strpos($mtime, '.') + 1);
+        return date('Y-m-d H:i:s', $sec) . '.' . str_pad((string)$usec, 6, '0', STR_PAD_LEFT);
     }
 
     private static function truncateBytes(string $string, int $maxBytes): string
