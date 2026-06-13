@@ -12,8 +12,8 @@ use Ramsey\Uuid\Uuid;
  * 用法：
  *   Logs::init();                                                     // 使用类默认值，自动生成 UUID trace_id
  *   Logs::init(['min_level' => 'debug', 'base_path' => '/data/logs']); // 可选：传入配置覆盖默认值
- *   Logs::feat('order');                                              // 设置后，后续日志均会携带 "feat":"order"
- *   Logs::endRequest();                                               // 常驻进程必须调用（Swoole 自动清理）
+ *   Logs::feat('order');                                              // 设置后，本执行单元（请求/队列/CLI）内的日志均携带 "feat":"order"
+ *   Logs::end();                                                      // 结束上下文，推荐用这个通用名（endRequest() 为旧别名）
  *
  * 快捷函数：
  *   Logs::debug();
@@ -284,12 +284,21 @@ class Logs
     }
 
     /**
-     * 结束当前协程的日志上下文
+     * 结束当前执行单元的日志上下文（请求 / 队列任务 / CLI 脚本 / 定时任务通用）
      */
-    public static function endRequest(): void
+    public static function end(): void
     {
         $cid = self::getCoroutineId();
         unset(self::$contexts[$cid]);
+    }
+
+    /**
+     * 结束当前协程的日志上下文 — 别名，为兼容早期命名保留
+     * @deprecated 推荐使用 Logs::end()，该方法对非请求场景语义同样清晰
+     */
+    public static function endRequest(): void
+    {
+        self::end();
     }
 
     /**
