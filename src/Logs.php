@@ -81,7 +81,9 @@ class Logs
 
     private const MAX_FIELD_LEN = 8000;
     private const MAX_TRACE_LEN = 524288;
-    private const MAX_FILE_SIZE = 100 * 1024 * 1024; // 100MB
+
+    /** @var int 单个日志文件最大字节数，超过后自动轮转 */
+    private static $maxFileSize = 100 * 1024 * 1024; // 100MB
 
     /** @var int GC 上下文过期时间（秒），长协程可调大，0 表示永不过期 */
     private static $gcTtl = 300;
@@ -119,8 +121,15 @@ class Logs
         }
 
         $realPath = realpath($path);
-        if ($realPath === false || !is_dir($realPath) || !is_writable($realPath)) {
-            throw new \InvalidArgumentException("Invalid or non-writable log base path: {$path}");
+        if ($realPath !== false) {
+            if (!is_dir($realPath) || !is_writable($realPath)) {
+                throw new \InvalidArgumentException("Invalid or non-writable log base path: {$path}");
+            }
+        } else {
+            if (!@mkdir($path, 0755, true) && !is_dir($path)) {
+                throw new \InvalidArgumentException("Cannot create log base path: {$path}");
+            }
+            $realPath = realpath($path);
         }
 
         // ThinkPHP 定义了 ROOT_PATH 时做一次软提示（仅警告级别），帮助开发者定位配置问题
@@ -208,6 +217,14 @@ class Logs
     }
 
     /**
+     * 设置单个日志文件最大字节数，超过后自动轮转。
+     */
+    public static function setMaxFileSize(int $bytes): void
+    {
+        self::$maxFileSize = max(1, $bytes);
+    }
+
+    /**
      * 从配置数组一次性加载所有选项，未提供的键保持默认值。
      *
      * 支持的键：
@@ -219,6 +236,7 @@ class Logs
      *   expand_trace_args              => bool    是否展开异常堆栈中的参数值
      *   auto_mask_high_entropy_strings => bool    是否对高熵字符串自动脱敏
      *   sensitive_key_match_mode       => string  敏感键匹配模式：'contains'（默认）或 'exact'
+     *   max_file_size                  => int     单个日志文件最大字节数，超过后自动轮转（默认 100MB）
      */
     public static function configure(array $config): void
     {
@@ -246,6 +264,9 @@ class Logs
         if (isset($config['sensitive_key_match_mode']) && is_string($config['sensitive_key_match_mode'])) {
             self::setSensitiveKeyMatchMode($config['sensitive_key_match_mode']);
         }
+        if (isset($config['max_file_size']) && is_numeric($config['max_file_size'])) {
+            self::setMaxFileSize((int)$config['max_file_size']);
+        }
     }
 
     /**
@@ -269,12 +290,22 @@ class Logs
         // 但为安全起见仍然强制重置 feat，避免上层业务重复调用产生污染。
         $ctx['feat'] = null;
 
-        if (method_exists(Uuid::class, 'uuid7')) {
-            $uuid = Uuid::uuid7();
+        if (class_exists(\Ramsey\Uuid\Uuid::class)) {
+            // 原有逻辑
+            if (method_exists(Uuid::class, 'uuid7')) {
+                $uuid = Uuid::uuid7();
+            } else {
+                $uuid = Uuid::uuid4();
+            }
+            $traceId = $uuid->toString();
         } else {
-            $uuid = Uuid::uuid4();
+            // 原生零依赖生成 UUID v4
+            $data = random_bytes(16);
+            $data[6] = chr(ord($data[6]) & 0x0f | 0x40); // set version to 0100
+            $data[8] = chr(ord($data[8]) & 0x3f | 0x80); // set bits 6-7 to 10
+            $traceId = vsprintf('%s%s-%s-%s-%s-%s%s%s', str_split(bin2hex($data), 4));
         }
-        $traceId = $uuid->toString();
+
         $ctx['trace_id'] = $traceId;
 
         // 自动清理：优先走各协程/框架的 defer 机制，否则由中间件在请求结束时显式调用 endRequest()。
@@ -551,7 +582,7 @@ class Logs
 
         $file = $dir . DIRECTORY_SEPARATOR . $day . '.log';
 
-        if (is_file($file) && filesize($file) > self::MAX_FILE_SIZE) {
+        if (is_file($file) && filesize($file) > self::$maxFileSize) {
             $lockFile = $file . '.rotatelock';
             $lockHandle = @fopen($lockFile, 'c+');
             $locked = $lockHandle !== false && @flock($lockHandle, LOCK_EX);
@@ -571,7 +602,7 @@ class Logs
                     }
 
                     // 双重检查：持锁后再次确认文件大小
-                    if (!is_file($file) || filesize($file) <= self::MAX_FILE_SIZE) {
+                    if (!is_file($file) || filesize($file) <= self::$maxFileSize) {
                         return $file;
                     }
 
@@ -674,7 +705,11 @@ class Logs
                         ];
                     }
                 } elseif (method_exists($value, '__toString')) {
-                    $result[$key] = self::truncateBytes((string)$value, self::MAX_FIELD_LEN);
+                    try {
+                        $result[$key] = self::truncateBytes((string)$value, self::MAX_FIELD_LEN);
+                    } catch (\Throwable $e) {
+                        $result[$key] = 'object(' . get_class($value) . ') (__toString exception)';
+                    }
                 } else {
                     $result[$key] = 'object(' . get_class($value) . ')';
                 }
