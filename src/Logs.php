@@ -85,6 +85,12 @@ class Logs
     /** @var int 单个日志文件最大字节数，超过后自动轮转 */
     private static $maxFileSize = 100 * 1024 * 1024; // 100MB
 
+    /** @var int GC 时间节流，记录上次 gcContexts() 触发的时间戳 */
+    private static $lastGcTime = 0;
+
+    /** @var callable|null 自定义日志写入器闭包，用于异步投递等场景 */
+    private static $customWriter = null;
+
     /** @var int GC 上下文过期时间（秒），长协程可调大，0 表示永不过期 */
     private static $gcTtl = 300;
 
@@ -225,6 +231,16 @@ class Logs
     }
 
     /**
+     * 设置自定义日志写入器闭包，用于替换 file_put_contents + LOCK_EX。
+     * 例如在 Swoole/Swow 中将日志投递到异步 Channel，防止阻塞 EventLoop。
+     * 传入 null 可重置为默认的 file_put_contents。
+     */
+    public static function setCustomWriter(?callable $writer): void
+    {
+        self::$customWriter = $writer;
+    }
+
+    /**
      * 从配置数组一次性加载所有选项，未提供的键保持默认值。
      *
      * 支持的键：
@@ -308,9 +324,11 @@ class Logs
 
         $ctx['trace_id'] = $traceId;
 
-        // 自动清理：优先走各协程/框架的 defer 机制，否则由中间件在请求结束时显式调用 endRequest()。
         if ($isCoroutine && extension_loaded('swoole') && class_exists('Swoole\Coroutine', false) && \Swoole\Coroutine::getCid() > 0) {
             \Swoole\Coroutine::defer([self::class, 'endRequest']);
+        } elseif (!defined('LOGS_SHUTDOWN_REGISTERED')) {
+            define('LOGS_SHUTDOWN_REGISTERED', true);
+            register_shutdown_function([self::class, 'end']);
         }
     }
 
@@ -424,8 +442,10 @@ class Logs
         }
 
         // 极低概率触发 GC
-        if (mt_rand(0, 999) === 0) {
+        $now = time();
+        if ($now - self::$lastGcTime > 30) {
             self::gcContexts();
+            self::$lastGcTime = $now;
         }
 
         $levelName = self::$reverseLevelMap[$level] ?? 'UNKNOWN';
@@ -466,6 +486,7 @@ class Logs
             // 在高并发常驻进程下降低触发阈值，避免内存线性增长
             if (count(self::$contexts) > 512) {
                 self::gcContexts();
+                self::$lastGcTime = time();
             }
             self::$contexts[$cid] = [
                 'trace_id' => null,
@@ -658,6 +679,11 @@ class Logs
 
     private static function writeFile(string $file, string $content): void
     {
+        if (self::$customWriter !== null) {
+            (self::$customWriter)($file, $content);
+            return;
+        }
+
         if (file_put_contents($file, $content, FILE_APPEND | LOCK_EX) === false) {
             throw new \RuntimeException("Unable to write log file: {$file}");
         }
