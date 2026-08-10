@@ -105,6 +105,6 @@ class EdgeCaseReflectionTest extends LogsTestCase
             $clone->setAccessible(true);
         }
         $clone->invoke($instance);
-        $this->addToAssertionCount(1);
+        $this->assertTrue(true);
     }
 }

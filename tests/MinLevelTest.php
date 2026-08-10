@@ -40,7 +40,7 @@ class MinLevelTest extends LogsTestCase
         Logs::setMinLevel('100'); // DEBUG level
         Logs::debug('debug message');
         $logs = $this->readLogs();
-        $this->assertSame(1, $logs[0]['level'] === 'DEBUG' ? 1 : 0); // Should pass
+        $this->assertSame('DEBUG', $logs[0]['level']);
     }
 
     public function testSetMinLevelInvalidThrowsException(): void
@@ -55,6 +55,6 @@ class MinLevelTest extends LogsTestCase
         Logs::setMinLevel(0);
         Logs::debug('debug message');
         $logs = $this->readLogs();
-        $this->assertSame(1, $logs[0]['level'] === 'DEBUG' ? 1 : 0); // Should pass
+        $this->assertSame('DEBUG', $logs[0]['level']);
     }
 }

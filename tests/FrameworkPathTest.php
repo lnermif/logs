@@ -14,7 +14,7 @@ class FrameworkPathTest extends LogsTestCase
         $this->assertSame($expected, $actual);
     }
 
-    public function testRuntimPathConstantUsed(): void
+    public function testRuntimePathConstantUsed(): void
     {
         $expected = '/tmp/thinkphp50/logs';
         $code = "define('RUNTIME_PATH', '/tmp/thinkphp50/');";

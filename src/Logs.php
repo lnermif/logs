@@ -936,10 +936,10 @@ class Logs
             return '[' . implode(', ', $items) . ']';
         }
         if (is_object($arg)) {
-            if ($objects->contains($arg)) {
+            if ($objects->offsetExists($arg)) {
                 return 'object(' . get_class($arg) . ') [RECURSION]';
             }
-            $objects->attach($arg);
+            $objects->offsetSet($arg, $arg);
             $result = 'object(' . get_class($arg) . ')';
             if ($arg instanceof \Throwable) {
                 $msg = self::truncateBytes($arg->getMessage(), 50);

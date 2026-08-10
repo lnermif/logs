@@ -34,7 +34,7 @@ class DynamicResponse extends Response
 
 class StringResponse extends Response
 {
-    public function header(string $name, string $value = null)
+    public function header(string $name, ?string $value = null)
     {
         $this->headers[$name] = $value;
         return $this;
@@ -93,7 +93,7 @@ class Response
 {
     private $headers = [];
 
-    public function header(string $name, string $value = null)
+    public function header(string $name, ?string $value = null)
     {
         $this->headers[$name] = $value;
         return $this;
