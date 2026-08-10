@@ -9,7 +9,8 @@ use PHPUnit\Framework\TestCase;
 
 abstract class LogsTestCase extends TestCase
 {
-    protected string $tmpDir;
+    /** @var string */
+    protected $tmpDir;
 
     protected function setUp(): void
     {

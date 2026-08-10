@@ -7,6 +7,9 @@ namespace Nermif\Logs\Tests;
 use Nermif\Logs\middleware\ThinkphpLogs;
 
 require_once __DIR__ . '/support/FrameworkStubs.php';
+if (PHP_VERSION_ID >= 80000) {
+    require_once __DIR__ . '/support/FrameworkUnionResponse.php';
+}
 
 /**
  * 使用 think\Response 桩类覆盖 ThinkphpLogs 中间件在不同框架版本
@@ -58,6 +61,9 @@ class ThinkphpLogsTest extends LogsTestCase
 
     public function testHandleWithUnionTypedResponse(): void
     {
+        if (PHP_VERSION_ID < 80000) {
+            $this->markTestSkipped('Union type stub requires PHP >= 8.0');
+        }
         $this->initLogs();
         $response = new \think\UnionResponse();
         $middleware = new ThinkphpLogs();

@@ -50,19 +50,6 @@ class ArrayResponse extends Response
     }
 }
 
-class UnionResponse extends Response
-{
-    public function header(string|array $name, $value = null)
-    {
-        if (is_array($name)) {
-            $this->headers = array_merge($this->headers, $name);
-        } else {
-            $this->headers[$name] = $value;
-        }
-        return $this;
-    }
-}
-
 class ThrowingResponse extends Response
 {
     public function header($name, $value = null)
