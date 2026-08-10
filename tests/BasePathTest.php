@@ -49,6 +49,14 @@ class BasePathTest extends LogsTestCase
         Logs::setBasePath($file);
     }
 
+    public function testRejectsPathThroughExistingFile(): void
+    {
+        $file = $this->tmpDir . '/blocker.txt';
+        file_put_contents($file, 'x');
+        $this->expectException(\InvalidArgumentException::class);
+        Logs::setBasePath($file . '/sub-dir');
+    }
+
     public function testRejectsNonWritableDirectory(): void
     {
         $target = $this->tmpDir . '/readonly';
