@@ -56,27 +56,33 @@ abstract class LogsTestCase extends TestCase
     private static function resetLogsState(): void
     {
         $ref = new \ReflectionClass(Logs::class);
-        $defaults = $ref->getDefaultProperties();
-        $names = [
-            'contexts',
-            'basePath',
-            'minLevel',
-            'gcTtl',
-            'sensitiveKeys',
-            'sanitizeMessage',
-            'expandTraceArgs',
-            'autoMaskHighEntropyStrings',
-            'sensitiveKeyMatchMode',
-            'maxFileSize',
-            'lastGcTime',
-            'customWriter',
+
+        // 使用硬编码默认值而非 getDefaultProperties()，
+        // 因为 PHP 7.4 的 ReflectionClass::getDefaultProperties()
+        // 会返回静态属性的当前值而非声明时的默认值（PHP 8.0+ 已修复）。
+        $defaults = [
+            'contexts' => [],
+            'basePath' => '',
+            'minLevel' => Logs::INFO,
+            'gcTtl' => 300,
+            'sensitiveKeys' => [
+                'password', 'passwd', 'secret', 'token',
+                'authorization', 'api_key', 'access_token', 'refresh_token',
+            ],
+            'sanitizeMessage' => true,
+            'expandTraceArgs' => false,
+            'autoMaskHighEntropyStrings' => false,
+            'sensitiveKeyMatchMode' => 'contains',
+            'maxFileSize' => 100 * 1024 * 1024,
+            'lastGcTime' => 0,
+            'customWriter' => null,
         ];
-        foreach ($names as $name) {
+        foreach ($defaults as $name => $value) {
             $prop = $ref->getProperty($name);
             if (PHP_VERSION_ID < 80100) {
                 $prop->setAccessible(true);
             }
-            $prop->setValue(null, $defaults[$name]);
+            $prop->setValue(null, $value);
         }
     }
 
