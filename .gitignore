@@ -4,3 +4,8 @@ composer.lock
 .idea
 /build/
 .phpunit.result.cache
+
+# agent工具
+.opencode
+.multica
+.agent_context
