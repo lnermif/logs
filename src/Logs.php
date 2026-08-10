@@ -974,7 +974,9 @@ class Logs
                 if (in_array($propName, $standardKeys, true)) {
                     continue;
                 }
-                $prop->setAccessible(true);
+                if (PHP_VERSION_ID < 80100) {
+                    $prop->setAccessible(true);
+                }
                 $value = $prop->getValue($exception);
 
                 // 属性名命中敏感词时，键名与值均脱敏

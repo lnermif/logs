@@ -30,19 +30,18 @@ class AutoMaskHighEntropyStringsTest extends LogsTestCase
     public function testAutoMaskHighEntropyStringsDoesNotAffectNormalStrings(): void
     {
         $this->initLogs(['auto_mask_high_entropy_strings' => true]);
-        Logs::error(null, new \RuntimeException('normal error', 1));
+        Logs::error('normal error', new \RuntimeException('normal error', 1));
         $logs = $this->readLogs();
-        $message = $logs[0]['context']['message'];
-        $this->assertSame('normal error', $message); // Should not be affected
+        $this->assertSame('normal error', $logs[0]['message']); // Should not be affected
     }
 
     public function testAutoMaskHighEntropyStringsWithMixedContent(): void
     {
         $this->initLogs(['auto_mask_high_entropy_strings' => true]);
-        Logs::error(null, new HighEntropyException());
+        Logs::error('this is normal', new HighEntropyException());
         $logs = $this->readLogs();
         $extra = $logs[0]['context']['exception']['extra'];
         $this->assertSame('***(high entropy)', $extra['payload']);
-        $this->assertSame('this is normal', $logs[0]['context']['message']);
+        $this->assertSame('this is normal', $logs[0]['message']);
     }
 }

@@ -10,20 +10,25 @@ class DebugContextTest extends LogsTestCase
 {
     public function testContextBeforeAndAfterInit(): void
     {
+        $method = new \ReflectionMethod(Logs::class, 'context');
+        if (PHP_VERSION_ID < 80100) {
+            $method->setAccessible(true);
+        }
+
         // Check context before init
-        $contextBefore = Logs::context();
+        $contextBefore = $method->invoke(null);
         $this->assertArrayHasKey('trace_id', $contextBefore);
         $this->assertArrayHasKey('feat', $contextBefore);
         $this->assertArrayHasKey('created_at', $contextBefore);
         $this->assertNull($contextBefore['trace_id']);
         $this->assertNull($contextBefore['feat']);
-        $this->assertNull($contextBefore['created_at']);
-        
+        $this->assertGreaterThan(0, $contextBefore['created_at']);
+
         // Initialize logs
         $this->initLogs();
-        
+
         // Check context after init
-        $contextAfter = Logs::context();
+        $contextAfter = $method->invoke(null);
         $this->assertArrayHasKey('trace_id', $contextAfter);
         $this->assertArrayHasKey('feat', $contextAfter);
         $this->assertArrayHasKey('created_at', $contextAfter);

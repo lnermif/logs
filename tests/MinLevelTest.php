@@ -15,8 +15,9 @@ class MinLevelTest extends LogsTestCase
         Logs::debug('debug message');
         Logs::info('info message');
         $logs = $this->readLogs();
-        $this->assertSame(1, $logs[0]['level'] === 'DEBUG' ? 1 : 0);
-        $this->assertSame(2, $logs[1]['level'] === 'INFO' ? 1 : 0);
+        $this->assertCount(2, $logs);
+        $this->assertSame('DEBUG', $logs[0]['level']);
+        $this->assertSame('INFO', $logs[1]['level']);
     }
 
     public function testSetMinLevelWithInteger(): void

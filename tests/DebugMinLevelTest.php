@@ -15,7 +15,6 @@ class DebugMinLevelTest extends LogsTestCase
         Logs::debug('debug message');
         Logs::info('info message');
         $logs = $this->readLogs();
-        var_dump(count($logs));
-        var_dump($logs);
+        $this->assertCount(0, $logs); // Both below WARNING, filtered out
     }
 }

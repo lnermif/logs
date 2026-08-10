@@ -13,7 +13,8 @@ class DebugSimpleTest extends LogsTestCase
         $this->initLogs();
         Logs::info('simple test');
         $logs = $this->readLogs();
-        var_dump(count($logs));
-        var_dump($logs[0] ?? 'no logs');
+        $this->assertCount(1, $logs);
+        $this->assertSame('INFO', $logs[0]['level']);
+        $this->assertSame('simple test', $logs[0]['message']);
     }
 }

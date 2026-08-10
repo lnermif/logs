@@ -11,10 +11,11 @@ class DebugAllErrorLevelsTest extends LogsTestCase
     public function testEmergencyLevelDebug(): void
     {
         $this->initLogs(['min_level' => 500]); // Set min level to CRITICAL
-        
+
         Logs::emergency('emergency message');
         $logs = $this->readLogs();
-        var_dump(count($logs));
-        var_dump($logs[0] ?? 'no logs');
+        $this->assertCount(1, $logs);
+        $this->assertSame('EMERGENCY', $logs[0]['level']);
+        $this->assertSame('emergency message', $logs[0]['message']);
     }
 }

@@ -14,7 +14,10 @@ class DebugAutoMaskTest extends LogsTestCase
         $this->initLogs();
         Logs::error(null, new HighEntropyException());
         $logs = $this->readLogs();
-        var_dump(count($logs));
-        var_dump($logs[0]);
+        $this->assertCount(1, $logs);
+        $this->assertSame(HighEntropyException::class, $logs[0]['context']['exception']['class']);
+        $this->assertArrayHasKey('extra', $logs[0]['context']['exception']);
+        $this->assertArrayHasKey('payload', $logs[0]['context']['exception']['extra']);
+        $this->assertStringStartsWith('X9kQz2m', $logs[0]['context']['exception']['extra']['payload']);
     }
 }

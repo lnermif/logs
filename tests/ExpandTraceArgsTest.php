@@ -5,35 +5,50 @@ declare(strict_types=1);
 namespace Nermif\Logs\Tests;
 
 use Nermif\Logs\Logs;
-use Nermif\Logs\Tests\Support\SimpleStringable;
-use Nermif\Logs\Tests\Support\ThrowingStringable;
+
+use function Nermif\Logs\Tests\Support\trace_bearer_provider;
+use function Nermif\Logs\Tests\Support\trace_provider;
+use function Nermif\Logs\Tests\Support\trace_recursion_provider;
 
 class ExpandTraceArgsTest extends LogsTestCase
 {
     public function testExpandTraceArgsDisabledByDefault(): void
     {
         $this->initLogs();
-        Logs::error(null, new \RuntimeException('test error'));
+        try {
+            trace_provider('hunter2', ['password' => 'abc'], 3);
+        } catch (\Throwable $e) {
+            Logs::error($e);
+        }
         $logs = $this->readLogs();
         $trace = $logs[0]['context']['exception']['trace'];
+        $this->assertStringContainsString('string(', $trace);
+        $this->assertStringNotContainsString("'hunter2'", $trace);
         $this->assertStringNotContainsString("'password'", $trace);
-        $this->assertStringNotContainsString("'secret'", $trace);
     }
 
     public function testExpandTraceArgsEnabledShowsArguments(): void
     {
         $this->initLogs(['expand_trace_args' => true]);
-        Logs::error(null, new \RuntimeException('test error', 1), ['password' => 'hunter2', 'secret' => 'abc']);
+        try {
+            trace_provider('hunter2', ['username' => 'john_doe'], 3);
+        } catch (\Throwable $e) {
+            Logs::error($e);
+        }
         $logs = $this->readLogs();
         $trace = $logs[0]['context']['exception']['trace'];
-        $this->assertStringContainsString("'password' => 'hunter2'", $trace);
-        $this->assertStringContainsString("'secret' => 'abc'", $trace);
+        $this->assertStringContainsString("'hunter2'", $trace);
+        $this->assertStringContainsString("'username' => 'john_doe'", $trace);
     }
 
     public function testExpandTraceArgsSensitiveKeyMasking(): void
     {
         $this->initLogs(['expand_trace_args' => true]);
-        Logs::error(null, new \RuntimeException('test error', 1), ['password' => 'hunter2', 'secret' => 'abc']);
+        try {
+            trace_provider('hello', ['password' => 'hunter2', 'secret' => 'abc'], 3);
+        } catch (\Throwable $e) {
+            Logs::error($e);
+        }
         $logs = $this->readLogs();
         $trace = $logs[0]['context']['exception']['trace'];
         $this->assertStringContainsString('***(masked)', $trace);
@@ -44,9 +59,14 @@ class ExpandTraceArgsTest extends LogsTestCase
     public function testExpandTraceArgsJwtNotExpandedByDefault(): void
     {
         $this->initLogs();
-        Logs::error(null, new \RuntimeException('test error'), ['authorization' => 'Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0In0.abc']);
+        try {
+            trace_bearer_provider('Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0In0.abc');
+        } catch (\Throwable $e) {
+            Logs::error($e);
+        }
         $logs = $this->readLogs();
         $trace = $logs[0]['context']['exception']['trace'];
+        $this->assertStringContainsString('string(', $trace);
         $this->assertStringNotContainsString('Bearer', $trace);
         $this->assertStringNotContainsString('eyJ', $trace);
     }
@@ -54,7 +74,11 @@ class ExpandTraceArgsTest extends LogsTestCase
     public function testExpandTraceArgsJwtExpandedWhenEnabled(): void
     {
         $this->initLogs(['expand_trace_args' => true]);
-        Logs::error(null, new \RuntimeException('test error'), ['authorization' => 'Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0In0.abc']);
+        try {
+            trace_bearer_provider('Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0In0.abc');
+        } catch (\Throwable $e) {
+            Logs::error($e);
+        }
         $logs = $this->readLogs();
         $trace = $logs[0]['context']['exception']['trace'];
         $this->assertStringContainsString('***(masked string', $trace);
@@ -65,33 +89,37 @@ class ExpandTraceArgsTest extends LogsTestCase
     public function testExpandTraceArgsComplexNestedStructure(): void
     {
         $this->initLogs(['expand_trace_args' => true]);
-        Logs::error(null, new \RuntimeException('test error'), [
-            'user' => [
-                'id' => 123,
-                'username' => 'john_doe',
-                'tokens' => [
-                    'access' => 'abc123',
-                    'refresh' => 'def456',
-                    'sensitive_api_key' => 'super_secret_key_789'
+        try {
+            trace_provider('hello', [
+                'user' => [
+                    'id' => 123,
+                    'username' => 'john_doe',
+                    'tokens' => [
+                        'access' => 'abc123',
+                        'refresh' => 'def456',
+                        'sensitive_api_key' => 'super_secret_key_789'
+                    ]
+                ],
+                'request' => [
+                    'method' => 'POST',
+                    'path' => '/api/users',
+                    'headers' => [
+                        'content-type' => 'application/json',
+                        'authorization' => 'Bearer xyz789'
+                    ]
                 ]
-            ],
-            'request' => [
-                'method' => 'POST',
-                'path' => '/api/users',
-                'headers' => [
-                    'content-type' => 'application/json',
-                    'authorization' => 'Bearer xyz789'
-                ]
-            ]
-        ]);
+            ], 3);
+        } catch (\Throwable $e) {
+            Logs::error($e);
+        }
         $logs = $this->readLogs();
         $trace = $logs[0]['context']['exception']['trace'];
-        
+
         // Check that sensitive keys are masked
         $this->assertStringContainsString('***(masked)', $trace);
         $this->assertStringNotContainsString('super_secret_key_789', $trace);
         $this->assertStringNotContainsString('xyz789', $trace);
-        
+
         // Check that non-sensitive data is shown
         $this->assertStringContainsString('123', $trace);
         $this->assertStringContainsString('john_doe', $trace);
@@ -102,7 +130,11 @@ class ExpandTraceArgsTest extends LogsTestCase
     public function testExpandTraceArgsDepthAndArityLimited(): void
     {
         $this->initLogs(['expand_trace_args' => true]);
-        Logs::error(null, new \RuntimeException('test error'), ['args' => range(1, 30)]);
+        try {
+            trace_provider('hello', range(1, 20), 3);
+        } catch (\Throwable $e) {
+            Logs::error($e);
+        }
         $logs = $this->readLogs();
         $trace = $logs[0]['context']['exception']['trace'];
         $this->assertStringContainsString('…(15 more)', $trace);
@@ -112,7 +144,12 @@ class ExpandTraceArgsTest extends LogsTestCase
     public function testExpandTraceArgsRecursionGuarded(): void
     {
         $this->initLogs(['expand_trace_args' => true]);
-        Logs::error(null, new \RuntimeException('test error', 1));
+        try {
+            $obj = new \stdClass();
+            trace_recursion_provider($obj, $obj);
+        } catch (\Throwable $e) {
+            Logs::error($e);
+        }
         $logs = $this->readLogs();
         $trace = $logs[0]['context']['exception']['trace'];
         $this->assertStringContainsString('[RECURSION]', $trace);

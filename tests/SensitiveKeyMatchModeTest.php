@@ -21,12 +21,11 @@ class SensitiveKeyMatchModeTest extends LogsTestCase
     public function testSensitiveKeyMatchModeExactMatching(): void
     {
         $this->initLogs(['sensitive_key_match_mode' => 'exact']);
-        Logs::info('test', ['my_secret_key' => 'value', 'other_secret_key' => 'another_value']);
+        Logs::info('test', ['secret' => 'hunter2', 'my_secret_key' => 'value', 'other_secret_key' => 'another_value']);
         $logs = $this->readLogs();
-        $this->assertSame('***', $logs[0]['context']['my_secret_key']);
-        $this->assertSame('value', $logs[0]['context']['my_secret_key']);  // Fixed: was checking 'other_secret_key'
+        $this->assertSame('***', $logs[0]['context']['secret']); // exact match is masked
+        $this->assertSame('value', $logs[0]['context']['my_secret_key']); // substring is NOT masked in exact mode
         $this->assertSame('another_value', $logs[0]['context']['other_secret_key']);
-        $this->assertSame('value', $logs[0]['context']['other_value']);
     }
 
     public function testSensitiveKeyMatchModeEmptyKeyListDisablesMasking(): void
@@ -42,9 +41,9 @@ class SensitiveKeyMatchModeTest extends LogsTestCase
     {
         $this->initLogs();
         Logs::setSensitiveKeyMatchMode('contains');
-        Logs::info('test', ['key.with.dots' => 'value', 'normal_key' => 'another_value']);
+        Logs::info('test', ['user.passwd.key' => 'value', 'normal_key' => 'another_value']);
         $logs = $this->readLogs();
-        $this->assertSame('***', $logs[0]['context']['key.with.dots']);
+        $this->assertSame('***', $logs[0]['context']['user.passwd.key']); // contains sensitive substring 'passwd'
         $this->assertSame('another_value', $logs[0]['context']['normal_key']);
     }
 
@@ -56,7 +55,5 @@ class SensitiveKeyMatchModeTest extends LogsTestCase
         $logs = $this->readLogs();
         $this->assertSame('***', $logs[0]['context']['MySecretKey']);
         $this->assertSame('***', $logs[0]['context']['mysecretkey']);
-        $this->assertSame('value', $logs[0]['context']['MySecretKey']);
-        $this->assertSame('another_value', $logs[0]['context']['mysecretkey']);
     }
 }

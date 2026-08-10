@@ -42,7 +42,7 @@ class AllErrorLevelsTest extends LogsTestCase
         
         Logs::emergency('emergency message');
         $logs = $this->readLogs();
-        $this->assertSame(1, $logs); // Should only have emergency log
+        $this->assertCount(1, $logs); // Should only have emergency log
         $this->assertSame('EMERGENCY', $logs[0]['level']);
     }
 
@@ -59,7 +59,7 @@ class AllErrorLevelsTest extends LogsTestCase
         $this->initLogs(['min_level' => 600]); // Set min level to EMERGENCY
         Logs::emergency('emergency message');
         $logs = $this->readLogs();
-        $this->assertSame(1, $logs); // Emergency should be logged
+        $this->assertCount(1, $logs); // Emergency should be logged
         $this->assertSame('EMERGENCY', $logs[0]['level']);
     }
 }

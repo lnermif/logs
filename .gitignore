@@ -2,3 +2,5 @@
 /logs
 composer.lock
 .idea
+/build/
+.phpunit.result.cache
