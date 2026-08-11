@@ -94,6 +94,33 @@ class Logs
     /** @var int GC 上下文过期时间（秒），长协程可调大，0 表示永不过期 */
     private static $gcTtl = 300;
 
+    /** @var int GC 上下文数量硬上限，超过后触发应急清理 */
+    private static $gcHardLimit = 2048;
+
+    /** @var int GC 应急清理时间阈值（秒），仅在上下文数量超过硬上限时生效 */
+    private static $gcEmergencyTtl = 300;
+
+    /** @var bool 是否开启关键指标统计（默认关闭，避免热路径额外开销） */
+    private static $enableMetrics = false;
+
+    /** @var int 上下文数量峰值（仅统计开启时记录） */
+    private static $peakContexts = 0;
+
+    /** @var int 累计日志写入次数（仅统计开启时记录） */
+    private static $writeCount = 0;
+
+    /** @var float 累计日志写入耗时（微秒，仅统计开启时记录） */
+    private static $writeTotalDurationUs = 0.0;
+
+    /** @var int 累计成功轮转次数（仅统计开启时记录） */
+    private static $rotationCount = 0;
+
+    /** @var int 轮转锁获取失败次数（仅统计开启时记录） */
+    private static $rotationLockFailCount = 0;
+
+    /** @var int 指标统计起点（Unix 秒，启用或重置时刷新） */
+    private static $metricsSince = 0;
+
     /** @var string[] 需要脱敏的上下文键名（小写） */
     private static $sensitiveKeys = [
         'password', 'passwd', 'secret', 'token', 'authorization', 'api_key', 'access_token', 'refresh_token',
@@ -177,6 +204,88 @@ class Logs
     }
 
     /**
+     * 设置 GC 上下文数量硬上限，超过后触发应急清理。
+     */
+    public static function setGcHardLimit(int $limit): void
+    {
+        self::$gcHardLimit = max(1, $limit);
+    }
+
+    /**
+     * 设置 GC 应急清理时间阈值（秒），仅在上下文数量超过硬上限时生效。
+     */
+    public static function setGcEmergencyTtl(int $seconds): void
+    {
+        self::$gcEmergencyTtl = max(0, $seconds);
+    }
+
+    /**
+     * 开启/关闭关键指标统计（上下文数量、写入延迟、轮转频率）。
+     * 默认关闭以保证热路径零额外开销；开启后仅在热路径上增加一次时间记录。
+     * 每次从关闭切换到开启时，指标会重置并重新计起。
+     */
+    public static function setMetricsEnabled(bool $enabled): void
+    {
+        if ($enabled && !self::$enableMetrics) {
+            self::resetMetrics();
+            self::$peakContexts = count(self::$contexts);
+        }
+        self::$enableMetrics = $enabled;
+    }
+
+    /**
+     * 重置全部指标计数并刷新统计起点（Unix 秒）。
+     */
+    public static function resetMetrics(): void
+    {
+        self::$peakContexts = 0;
+        self::$writeCount = 0;
+        self::$writeTotalDurationUs = 0.0;
+        self::$rotationCount = 0;
+        self::$rotationLockFailCount = 0;
+        self::$metricsSince = time();
+    }
+
+    /**
+     * 获取关键指标快照，供监控/告警使用。
+     *
+     * 返回结构：
+     *  - contexts.current         当前上下文数量（实时，不依赖统计开关）
+     *  - contexts.peak            上下文数量峰值（仅统计开启期间记录）
+     *  - write.count              累计写入次数
+     *  - write.total_dur_us       累计写入耗时（微秒）
+     *  - write.avg_dur_us         平均单次写入耗时（微秒）
+     *  - rotation.count           成功轮转次数
+     *  - rotation.lock_failures   轮转锁获取失败次数
+     *  - since                    统计起点（Unix 秒）
+     *  - enabled                  统计是否开启
+     *
+     * 轮转频率可由调用方计算：rotation.count / (now - since)。
+     */
+    public static function getMetrics(): array
+    {
+        return [
+            'contexts' => [
+                'current' => count(self::$contexts),
+                'peak' => self::$peakContexts,
+            ],
+            'write' => [
+                'count' => self::$writeCount,
+                'total_dur_us' => self::$writeTotalDurationUs,
+                'avg_dur_us' => self::$writeCount > 0
+                    ? round(self::$writeTotalDurationUs / self::$writeCount, 3)
+                    : 0.0,
+            ],
+            'rotation' => [
+                'count' => self::$rotationCount,
+                'lock_failures' => self::$rotationLockFailCount,
+            ],
+            'since' => self::$metricsSince,
+            'enabled' => self::$enableMetrics,
+        ];
+    }
+
+    /**
      * 设置需要脱敏的上下文键名（全小写），传入空数组关闭脱敏
      */
     public static function setSensitiveKeys(array $keys): void
@@ -247,12 +356,15 @@ class Logs
      *   base_path                      => string  日志根目录（绝对路径）
      *   min_level                      => string|int  最低日志级别，如 'debug' / 100
      *   gc_ttl                         => int     GC 上下文过期时间（秒），0 表示永不过期
+     *   gc_hard_limit                  => int     GC 上下文数量硬上限（默认 2048）
+     *   gc_emergency_ttl               => int     GC 应急清理时间阈值（秒，默认 300）
      *   sensitive_keys                 => array   需要脱敏的上下文键名（全小写），空数组关闭脱敏
      *   sanitize_message               => bool    是否过滤消息中的控制字符
      *   expand_trace_args              => bool    是否展开异常堆栈中的参数值
      *   auto_mask_high_entropy_strings => bool    是否对高熵字符串自动脱敏
      *   sensitive_key_match_mode       => string  敏感键匹配模式：'contains'（默认）或 'exact'
      *   max_file_size                  => int     单个日志文件最大字节数，超过后自动轮转（默认 100MB）
+     *   enable_metrics                 => bool    是否开启关键指标统计（上下文数量、写入延迟、轮转频率，默认 false）
      */
     public static function configure(array $config): void
     {
@@ -264,6 +376,12 @@ class Logs
         }
         if (isset($config['gc_ttl']) && is_numeric($config['gc_ttl'])) {
             self::setGcTtl((int)$config['gc_ttl']);
+        }
+        if (isset($config['gc_hard_limit']) && is_numeric($config['gc_hard_limit'])) {
+            self::setGcHardLimit((int)$config['gc_hard_limit']);
+        }
+        if (isset($config['gc_emergency_ttl']) && is_numeric($config['gc_emergency_ttl'])) {
+            self::setGcEmergencyTtl((int)$config['gc_emergency_ttl']);
         }
         if (isset($config['sensitive_keys']) && is_array($config['sensitive_keys'])) {
             self::setSensitiveKeys($config['sensitive_keys']);
@@ -282,6 +400,9 @@ class Logs
         }
         if (isset($config['max_file_size']) && is_numeric($config['max_file_size'])) {
             self::setMaxFileSize((int)$config['max_file_size']);
+        }
+        if (array_key_exists('enable_metrics', $config)) {
+            self::setMetricsEnabled((bool)$config['enable_metrics']);
         }
     }
 
@@ -473,7 +594,12 @@ class Logs
         try {
             // 统一写入主日志文件（不再根据 feat 分文件）
             $file = self::buildLogFilePath();
+            $t0 = self::$enableMetrics ? microtime(true) : 0.0;
             self::writeFile($file, $line);
+            if (self::$enableMetrics) {
+                self::$writeTotalDurationUs += (microtime(true) - $t0) * 1000000;
+                self::$writeCount++;
+            }
         } catch (\Throwable $e) {
             error_log('Log write failed: ' . $e->getMessage());
         }
@@ -493,6 +619,12 @@ class Logs
                 'feat' => null,
                 'created_at' => time(),
             ];
+            if (self::$enableMetrics) {
+                $contextCount = count(self::$contexts);
+                if ($contextCount > self::$peakContexts) {
+                    self::$peakContexts = $contextCount;
+                }
+            }
         }
         return self::$contexts[$cid];
     }
@@ -500,8 +632,8 @@ class Logs
     private static function gcContexts(): void
     {
         $now = time();
-        $hardLimit = 2048;
-        $emergencyTtl = 300;
+        $hardLimit = self::$gcHardLimit;
+        $emergencyTtl = self::$gcEmergencyTtl;
         $count = count(self::$contexts);
 
         foreach (self::$contexts as $key => $val) {
@@ -638,6 +770,9 @@ class Logs
                     } else {
                         // 轮转成功后 touch 新主文件，保证日志文件始终存在
                         @touch($file);
+                        if (self::$enableMetrics) {
+                            self::$rotationCount++;
+                        }
                     }
 
                     // 写入心跳时间戳
@@ -650,6 +785,9 @@ class Logs
                 }
             } else {
                 error_log("Log rotation lock failed: {$file}");
+                if (self::$enableMetrics) {
+                    self::$rotationLockFailCount++;
+                }
             }
         }
 
